@@ -42,7 +42,7 @@ import kotlinx.coroutines.launch
  * drag.stopDrag()
  * ```
  */
-class ZcTouchDrag(activity: ZcBasisActivity) : DefaultLifecycleObserver {
+class TouchDrag(activity: ZcBasisActivity) : DefaultLifecycleObserver {
 
     private val targetView: View = activity.window.decorView
     private val lifecycle: Lifecycle = activity.lifecycle
