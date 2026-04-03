@@ -1,0 +1,90 @@
+feature_closure_v1:
+  feature: "detail"
+  scope: "page"
+  lifecycle_stage: "verified"
+
+  target:
+    module: ":app"
+    package: "com.icinema.pages.detail"
+    entry_composable: "DetailContent"
+    write_scope:
+      - "app/src/main/java/com/icinema/pages/detail/**"
+
+  ui_anchor:
+    ui_status: "verified"
+    intents:
+      - name: "LoadVideo"
+        source: "page_enter"
+        payload:
+          videoId: "Long"
+      - name: "RetryLoad"
+        source: "error_retry|synopsis_refresh"
+        payload: {}
+      - name: "SelectPlaySource"
+        source: "play_source_chip_click"
+        payload:
+          source: "String"
+      - name: "SelectRange"
+        source: "range_chip_click"
+        payload:
+          range: "Int"
+      - name: "SelectEpisode"
+        source: "episode_tag_click"
+        payload:
+          episode: "Int"
+      - name: "ClearVideo"
+        source: "page_dispose"
+        payload: {}
+    state_candidates:
+      - name: "currentVideoId"
+        type: "Long?"
+      - name: "isLoading"
+        type: "Boolean"
+      - name: "video"
+        type: "Video?"
+      - name: "error"
+        type: "String?"
+      - name: "selectedPlaySource"
+        type: "String?"
+      - name: "selectedEpisode"
+        type: "Int"
+      - name: "selectedRange"
+        type: "Int"
+
+  mvi_anchor:
+    business_status: "verified"
+    mvi_status: "verified"
+    contract:
+      ui_state: "DetailContract.UiState"
+      ui_intent: "DetailContract.UiIntent"
+      ui_effect: "DetailContract.UiEffect"
+      reducer: "DetailReducer"
+      view_model: "DetailViewModel"
+    biz_port:
+      interface_name: "DetailBizPort"
+      methods:
+        - name: "loadVideo"
+          signature: "suspend fun loadVideo(videoId: Long): Result<Video>"
+    fake_boundary:
+      status: "fully_replaced"
+
+  data_anchor:
+    data_status: "verified"
+    feature_status: "real"
+    data_dependencies:
+      - name: "ICmsRepository.getVideoDetail(videoId)"
+        mapped_biz_port_method: "loadVideo"
+        status: "real"
+
+  verification:
+    compile_status: "passed"
+    runtime_status: "passed"
+
+  ownership:
+    last_updated_by_skill: "android-data-integration"
+    last_updated_at_utc: "2026-03-31T05:32:09Z"
+    next_recommended_skill: "android-data-integration"
+    next_action: "none"
+
+  open_items:
+    - "none"

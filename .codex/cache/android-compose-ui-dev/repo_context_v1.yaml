@@ -1,0 +1,50 @@
+{
+  "version": "repo_context_v1",
+  "generated_at": "2026-03-30T06:00:30Z",
+  "repo_root": "/Users/Weihl/Documents/Project/wayforge/iCinema",
+  "git_head": "183da13046e16343f5c0047ee10b6a87c4bd9908",
+  "settings_files": [
+    "settings.gradle.kts"
+  ],
+  "build_files": [
+    "build.gradle.kts",
+    "gradle.properties",
+    "gradle/libs.versions.toml",
+    "app/build.gradle.kts"
+  ],
+  "detected_modules": [
+    ":app"
+  ],
+  "targetable_ui_modules": [
+    ":app"
+  ],
+  "theme_paths": [
+    "app/src/main/res/values/colors.xml",
+    "app/src/main/res/values/themes.xml",
+    "app/src/main/java/com/icinema/ui/theme/Color.kt",
+    "app/src/main/java/com/icinema/ui/theme/Theme.kt",
+    "app/src/main/java/com/icinema/ui/theme/Type.kt"
+  ],
+  "token_paths": [
+    "app/src/main/res/values/colors.xml",
+    "app/src/main/java/com/icinema/ui/theme/Color.kt"
+  ],
+  "common_component_paths": [
+    "app/src/main/java/com/icinema/pages/widgets"
+  ],
+  "image_loading_stack": [
+    "coil"
+  ],
+  "icon_resource_patterns": [
+    "app/src/main/res/drawable*/ic_*.xml"
+  ],
+  "preview_patterns": [
+    "app/src/main/java/com/icinema/pages/detail contains @Preview"
+  ],
+  "recommended_build_checks": [
+    ":app:compileDebugKotlin",
+    ":app:assembleDebug"
+  ],
+  "notes": [],
+  "confidence": "high"
+}

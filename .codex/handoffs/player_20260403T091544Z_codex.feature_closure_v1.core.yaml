@@ -1,0 +1,148 @@
+feature_closure_v1:
+  feature: "player"
+  scope: "page"
+  lifecycle_stage: "mvi_stubbed"
+
+  target:
+    module: ":app"
+    package: "com.icinema.pages.player"
+    entry_composable: "PlayerContent"
+    write_scope:
+      - "app/src/main/java/com/icinema/pages/player/**"
+
+  ui_anchor:
+    ui_status: "implemented"
+    intents:
+      - name: "Load"
+        source: "screen_enter"
+        payload:
+          videoId: "Long"
+          sourceKey: "String?"
+          episodeIndex: "Int"
+      - name: "TogglePlayPause"
+        source: "play_pause_click"
+        payload: {}
+      - name: "SeekTo"
+        source: "timeline_drag"
+        payload:
+          positionMs: "Long"
+      - name: "SeekForward"
+        source: "seek_forward_click"
+        payload: {}
+      - name: "SeekBackward"
+        source: "seek_backward_click"
+        payload: {}
+      - name: "SelectSource"
+        source: "source_sheet_select"
+        payload:
+          sourceKey: "String"
+      - name: "SelectEpisode"
+        source: "episode_sheet_select"
+        payload:
+          episodeIndex: "Int"
+      - name: "PlayNext"
+        source: "next_click|auto_complete"
+        payload: {}
+      - name: "PlayPrevious"
+        source: "previous_click"
+        payload: {}
+      - name: "Retry"
+        source: "retry_click"
+        payload: {}
+      - name: "ToggleControls"
+        source: "player_surface_click"
+        payload: {}
+      - name: "EnterFullscreen"
+        source: "fullscreen_click"
+        payload: {}
+      - name: "ExitFullscreen"
+        source: "fullscreen_exit_click|back_press"
+        payload: {}
+      - name: "AcceptResume"
+        source: "resume_continue|auto_accept"
+        payload: {}
+      - name: "RestartFromBeginning"
+        source: "resume_restart"
+        payload: {}
+      - name: "OnLifecycleStart"
+        source: "lifecycle_start"
+        payload: {}
+      - name: "OnLifecycleStop"
+        source: "lifecycle_stop"
+        payload: {}
+    state_candidates:
+      - name: "videoId"
+        type: "Long?"
+      - name: "video"
+        type: "Video?"
+      - name: "playSources"
+        type: "List<PlaySource>"
+      - name: "selectedSourceKey"
+        type: "String?"
+      - name: "selectedEpisodeIndex"
+        type: "Int"
+      - name: "currentEpisode"
+        type: "PlayableEpisode?"
+      - name: "isLoading"
+        type: "Boolean"
+      - name: "isBuffering"
+        type: "Boolean"
+      - name: "isPlaying"
+        type: "Boolean"
+      - name: "currentPositionMs"
+        type: "Long"
+      - name: "durationMs"
+        type: "Long"
+      - name: "bufferedPositionMs"
+        type: "Long"
+      - name: "controlsVisible"
+        type: "Boolean"
+      - name: "error"
+        type: "String?"
+      - name: "canPlayNext"
+        type: "Boolean"
+      - name: "cacheEnabled"
+        type: "Boolean"
+      - name: "isFullscreen"
+        type: "Boolean"
+      - name: "resumePositionMs"
+        type: "Long?"
+
+  mvi_anchor:
+    business_status: "aligned"
+    mvi_status: "wired"
+    business_alignment_ref:
+      path: "/Users/Weihl/Documents/Project/wayforge/iCinema/.codex/handoffs/player_20260403T091544Z_codex.business_alignment_v1.yaml"
+      status: "confirmed"
+    contract:
+      ui_state: "PlayerContract.UiState"
+      ui_intent: "PlayerContract.UiIntent"
+      ui_effect: "PlayerContract.UiEffect"
+      reducer: "PlayerReducer"
+      view_model: "PlayerViewModel"
+    biz_port:
+      interface_name: "PlayerBizPort"
+      methods:
+        - name: "loadVideo"
+          signature: "suspend fun loadVideo(videoId: Long): Result<Video>"
+        - name: "loadSavedProgress"
+          signature: "suspend fun loadSavedProgress(videoId: Long, sourceKey: String, episodeIndex: Int): PlaybackProgress?"
+        - name: "saveProgress"
+          signature: "suspend fun saveProgress(videoId: Long, sourceKey: String, episodeIndex: Int, positionMs: Long, durationMs: Long)"
+        - name: "clearProgressOnComplete"
+          signature: "suspend fun clearProgressOnComplete(videoId: Long, sourceKey: String, episodeIndex: Int)"
+    fake_boundary:
+      status: "present"
+
+  verification:
+    compile_status: "passed"
+    runtime_status: "not_run"
+
+  ownership:
+    last_updated_by_skill: "android-mvi-dev"
+    last_updated_at_utc: "2026-04-03T09:15:44Z"
+    next_recommended_skill: "android-data-integration"
+    next_action: "verify whether PlayerBizPort should stay real-backed or be partially replaced by data-layer adapters"
+
+  open_items:
+    - "OnLifecycleStart currently has no business action"

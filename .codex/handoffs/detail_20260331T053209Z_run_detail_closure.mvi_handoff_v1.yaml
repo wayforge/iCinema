@@ -1,0 +1,94 @@
+mvi_handoff_v1:
+  feature: "detail"
+  scope: "page"
+  target_module: ":app"
+  target_package: "com.icinema.pages.detail"
+  entry_composable: "DetailContent"
+  write_scope:
+    - "app/src/main/java/com/icinema/pages/detail/**"
+  ui_units:
+    - name: "DetailHeaderCard"
+      role: "section"
+      responsibility: "Render poster, metadata chips, cast metadata, and current playback summary"
+    - name: "PlaySourceSelector"
+      role: "leaf"
+      responsibility: "Render source chips and selected state"
+    - name: "EpisodeRangeSelector"
+      role: "leaf"
+      responsibility: "Render range chips for large episode sets"
+    - name: "EpisodeGrid"
+      role: "section"
+      responsibility: "Render episode tags and current selection state"
+    - name: "SynopsisCard"
+      role: "leaf"
+      responsibility: "Render cleaned synopsis content and refresh action"
+  intents:
+    - name: "LoadVideo"
+      source: "page_enter"
+      payload:
+        videoId: "Long"
+    - name: "RetryLoad"
+      source: "error_retry|synopsis_refresh"
+      payload: {}
+    - name: "SelectPlaySource"
+      source: "play_source_chip_click"
+      payload:
+        source: "String"
+    - name: "SelectRange"
+      source: "range_chip_click"
+      payload:
+        range: "Int"
+    - name: "SelectEpisode"
+      source: "episode_tag_click"
+      payload:
+        episode: "Int"
+    - name: "ClearVideo"
+      source: "page_dispose"
+      payload: {}
+  state_candidates:
+    - name: "currentVideoId"
+      type: "Long?"
+      default: null
+      derived_from: "activity extra"
+    - name: "isLoading"
+      type: "Boolean"
+      default: false
+      derived_from: "repository request state"
+    - name: "video"
+      type: "Video?"
+      default: null
+      derived_from: "ICmsRepository.getVideoDetail"
+    - name: "error"
+      type: "String?"
+      default: null
+      derived_from: "repository failure"
+    - name: "selectedPlaySource"
+      type: "String?"
+      default: null
+      derived_from: "video.playGroups first source or chip selection"
+    - name: "selectedEpisode"
+      type: "Int"
+      default: 0
+      derived_from: "episode click"
+    - name: "selectedRange"
+      type: "Int"
+      default: 0
+      derived_from: "range chip click"
+  effects:
+    - name: "ShowMessage"
+      trigger: "load_failed|retry_without_video_id"
+      payload: "message"
+  data_dependencies:
+    - name: "ICmsRepository.getVideoDetail(videoId)"
+      owner: "detail repository"
+  ui_to_domain_mapping:
+    - ui: "activity extra"
+      domain: "videoId"
+    - ui: "selectedPlaySource"
+      domain: "video.playGroups source"
+    - ui: "selectedEpisode"
+      domain: "video.playGroups episode index"
+    - ui: "selectedRange"
+      domain: "paged episode segment"
+  unresolved:
+    - "none"

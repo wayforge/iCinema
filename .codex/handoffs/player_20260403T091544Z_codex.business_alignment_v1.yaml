@@ -1,0 +1,28 @@
+business_alignment_v1:
+  feature: "player"
+  scope: "page"
+  goal: "完成播放器页的加载、线路切换、选集切换、播放控制和进度续播闭环"
+  primary_flow:
+    - "进入页面后根据 videoId 加载视频详情并解析播放源"
+    - "确定当前线路和剧集后准备播放，并在可用时恢复历史进度"
+    - "用户可播放、暂停、拖动进度、切换线路和切换剧集"
+  secondary_flows:
+    - "用户可切换全屏、显示或隐藏控制层"
+    - "播放结束时自动尝试下一集"
+  error_flows:
+    - "videoId 无效时关闭页面"
+    - "详情加载失败时展示错误并允许重试"
+    - "无可用播放源时展示不可播放错误"
+    - "非 HLS 播放源时展示当前版本不支持"
+  deferred_scope:
+    - "真实播放器之外的评论、收藏、分享能力"
+    - "OnLifecycleStart 的自动恢复策略"
+  fake_allowed_boundaries:
+    - "BizPort 可保留 FakePlayerBizPort 作为本地 stub 边界"
+    - "运行时仍允许绑定 RepositoryPlayerBizPort"
+  done_definition:
+    - "PlayerContract、PlayerReducer、PlayerViewModel、PlayerBizPort 已形成单一主链路"
+    - "Screen 只通过 UiState 渲染、UiIntent 输入、UiEffect 消费一次性事件"
+    - "线路、剧集、重试、续播、播放进度持久化行为可由 BizPort 边界承接"
+  confirmed_by: "user"
+  confirmed_at_utc: "2026-04-03T09:15:44Z"

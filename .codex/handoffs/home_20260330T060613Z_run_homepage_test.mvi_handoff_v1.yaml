@@ -1,0 +1,121 @@
+mvi_handoff_v1:
+  feature: "home"
+  scope: "page"
+  target_module: ":app"
+  target_package: "com.icinema.pages.home"
+  entry_composable: "HomeScreen"
+  write_scope:
+    - "app/src/main/java/com/icinema/pages/home/**"
+  ui_units:
+    - name: "HomeTopBar"
+      role: "section"
+      responsibility: "Render title, search toggle, and search-mode back action"
+    - name: "CategoryTabs"
+      role: "leaf"
+      responsibility: "Render category filter chips and selected state"
+    - name: "SearchBar"
+      role: "leaf"
+      responsibility: "Render keyword input, clear action, and submit action"
+    - name: "VideoGridContent"
+      role: "section"
+      responsibility: "Render paged video list, loading-more footer, and pull-to-refresh container"
+    - name: "VideoCard"
+      role: "leaf"
+      responsibility: "Render video poster, play affordance, title, and type label"
+  intents:
+    - name: "LoadVideos"
+      source: "initial_load|category_select|search_submit|refresh"
+      payload:
+        page: "Int"
+        categoryId: "Int?"
+        keyword: "String?"
+        isRefresh: "Boolean"
+    - name: "LoadMore"
+      source: "grid_scroll_near_end"
+      payload: {}
+    - name: "Refresh"
+      source: "pull_to_refresh|retry"
+      payload: {}
+    - name: "SelectCategory"
+      source: "category_chip_click"
+      payload:
+        categoryId: "Int?"
+    - name: "Search"
+      source: "keyboard_search|search_button"
+      payload:
+        keyword: "String"
+    - name: "ClearSearch"
+      source: "search_clear|back_to_list"
+      payload: {}
+  state_candidates:
+    - name: "isLoading"
+      type: "Boolean"
+      default: false
+      derived_from: "page_1_load"
+    - name: "isRefreshing"
+      type: "Boolean"
+      default: false
+      derived_from: "pull_to_refresh"
+    - name: "isLoadingMore"
+      type: "Boolean"
+      default: false
+      derived_from: "pagination"
+    - name: "isSearching"
+      type: "Boolean"
+      default: false
+      derived_from: "search_request"
+    - name: "videos"
+      type: "List<Video>"
+      default: "emptyList()"
+      derived_from: "repository.getVideoList|repository.searchVideo"
+    - name: "error"
+      type: "String?"
+      default: null
+      derived_from: "repository failure"
+    - name: "currentPage"
+      type: "Int"
+      default: 1
+      derived_from: "pagination progress"
+    - name: "hasMorePages"
+      type: "Boolean"
+      default: true
+      derived_from: "videos.isNotEmpty()"
+    - name: "isSearchMode"
+      type: "Boolean"
+      default: false
+      derived_from: "search mode toggle"
+    - name: "searchKeyword"
+      type: "String"
+      default: ""
+      derived_from: "search submit"
+    - name: "categories"
+      type: "List<Category>"
+      default: "emptyList()"
+      derived_from: "repository.getCategoryList"
+    - name: "selectedCategoryId"
+      type: "Int?"
+      default: null
+      derived_from: "category selection"
+  effects:
+    - name: "ShowError"
+      trigger: "load_failed|search_failed"
+      payload: "message"
+    - name: "ShowToast"
+      trigger: "one_shot_feedback"
+      payload: "message"
+  data_dependencies:
+    - name: "ICmsRepository.getCategoryList()"
+      owner: "home repository"
+    - name: "ICmsRepository.getVideoList(page, categoryId, keyword)"
+      owner: "home repository"
+    - name: "ICmsRepository.searchVideo(keyword, page)"
+      owner: "home repository"
+  ui_to_domain_mapping:
+    - ui: "selectedCategoryId"
+      domain: "categoryId"
+    - ui: "searchQuery"
+      domain: "keyword"
+    - ui: "grid last visible item"
+      domain: "next page trigger"
+  unresolved:
+    - "HomeEvent flow is defined in ViewModel but not collected in HomeScreen; downstream effect consumption strategy should be confirmed before refactor."

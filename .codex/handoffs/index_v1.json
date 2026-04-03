@@ -1,0 +1,24 @@
+{
+  "version": "index_v1",
+  "features": {
+    "detail": {
+      "feature": "detail",
+      "updated_at_utc": "2026-03-31T05:32:09Z",
+      "run_id": "run_detail_closure",
+      "feature_closure_path": "/Users/Weihl/Documents/Project/wayforge/iCinema/.codex/handoffs/detail_20260331T053209Z_run_detail_closure.feature_closure_v1.core.yaml",
+      "mvi_handoff_path": "/Users/Weihl/Documents/Project/wayforge/iCinema/.codex/handoffs/detail_20260331T053209Z_run_detail_closure.mvi_handoff_v1.yaml",
+      "asset_handoff_path": null,
+      "repo_context_state": "runtime-verified",
+      "has_asset_blockers": false
+    },
+    "home": {
+      "feature": "home",
+      "updated_at_utc": "2026-03-30T06:06:13Z",
+      "run_id": "run_homepage_test",
+      "mvi_handoff_path": "/Users/Weihl/Documents/Project/wayforge/iCinema/.codex/handoffs/home_20260330T060613Z_run_homepage_test.mvi_handoff_v1.yaml",
+      "asset_handoff_path": null,
+      "repo_context_state": "fresh-cache",
+      "has_asset_blockers": false
+    }
+  }
+}

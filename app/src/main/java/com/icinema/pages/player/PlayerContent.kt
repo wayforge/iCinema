@@ -1,0 +1,141 @@
+package com.icinema.pages.player
+
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.media3.exoplayer.ExoPlayer
+import com.icinema.domain.model.PlaySource
+import kotlinx.coroutines.delay
+
+internal enum class PlayerSheetMode {
+    Sources,
+    Episodes
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PlayerContent(
+    state: PlayerContract.UiState,
+    player: ExoPlayer?,
+    onBackClick: () -> Unit,
+    onIntent: (PlayerContract.UiIntent) -> Unit,
+    snackbarHostState: SnackbarHostState
+) {
+    var sheetMode by remember { mutableStateOf<PlayerSheetMode?>(null) }
+    val selectedSource = state.playSources.firstOrNull { it.key == state.selectedSourceKey }
+
+    PlayerSheetHost(
+        sheetMode = sheetMode,
+        state = state,
+        selectedSource = selectedSource,
+        onDismiss = { sheetMode = null },
+        onSelectSource = { sourceKey ->
+            sheetMode = null
+            onIntent(PlayerContract.UiIntent.SelectSource(sourceKey))
+        },
+        onSelectEpisode = { episodeIndex ->
+            sheetMode = null
+            onIntent(PlayerContract.UiIntent.SelectEpisode(episodeIndex))
+        }
+    )
+
+    AutoDismissPlayerControls(state = state, onIntent = onIntent)
+    AutoAcceptResumePrompt(state = state, onIntent = onIntent)
+
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        containerColor = MaterialTheme.colorScheme.background
+    ) { paddingValues ->
+        if (state.isLoading && state.video == null) {
+            PlayerLoadingState(modifier = Modifier.padding(paddingValues))
+            return@Scaffold
+        }
+
+        PlayerPage(
+            state = state,
+            player = player,
+            selectedSource = selectedSource,
+            onBackClick = onBackClick,
+            onIntent = onIntent,
+            onOpenSources = { sheetMode = PlayerSheetMode.Sources },
+            onOpenEpisodes = { sheetMode = PlayerSheetMode.Episodes },
+            modifier = Modifier.padding(paddingValues)
+        )
+    }
+}
+
+@Composable
+private fun AutoDismissPlayerControls(
+    state: PlayerContract.UiState,
+    onIntent: (PlayerContract.UiIntent) -> Unit
+) {
+    LaunchedEffect(state.controlsVisible, state.isPlaying) {
+        if (state.controlsVisible && state.isPlaying) {
+            delay(3_000L)
+            if (state.controlsVisible) {
+                onIntent(PlayerContract.UiIntent.ToggleControls)
+            }
+        }
+    }
+}
+
+@Composable
+private fun AutoAcceptResumePrompt(
+    state: PlayerContract.UiState,
+    onIntent: (PlayerContract.UiIntent) -> Unit
+) {
+    LaunchedEffect(state.resumePositionMs) {
+        if (state.resumePositionMs != null) {
+            delay(5_000L)
+            onIntent(PlayerContract.UiIntent.AcceptResume)
+        }
+    }
+}
+
+@Composable
+private fun PlayerPage(
+    state: PlayerContract.UiState,
+    player: ExoPlayer?,
+    selectedSource: PlaySource?,
+    onBackClick: () -> Unit,
+    onIntent: (PlayerContract.UiIntent) -> Unit,
+    onOpenSources: () -> Unit,
+    onOpenEpisodes: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+    ) {
+        PlayerSurfaceSection(
+            state = state,
+            player = player,
+            onBackClick = onBackClick,
+            onIntent = onIntent,
+            modifier = Modifier
+        )
+
+        if (!state.isFullscreen) {
+            PlayerDetailsSection(
+                state = state,
+                selectedSource = selectedSource,
+                onOpenSources = onOpenSources,
+                onOpenEpisodes = onOpenEpisodes,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 18.dp)
+            )
+        }
+    }
+}
