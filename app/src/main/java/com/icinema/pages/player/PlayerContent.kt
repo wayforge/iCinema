@@ -70,12 +70,10 @@ private fun AutoDismissPlayerControls(
     state: PlayerContract.UiState,
     onIntent: (PlayerContract.UiIntent) -> Unit
 ) {
-    LaunchedEffect(state.controlsVisible, state.isPlaying) {
-        if (state.controlsVisible && state.isPlaying) {
+    LaunchedEffect(state.controlsVisible, state.isPlaying, state.activeSheetMode) {
+        if (state.controlsVisible && state.isPlaying && state.activeSheetMode == null) {
             delay(3_000L)
-            if (state.controlsVisible) {
-                onIntent(PlayerContract.UiIntent.ToggleControls)
-            }
+            onIntent(PlayerContract.UiIntent.ToggleControls)
         }
     }
 }
@@ -111,7 +109,13 @@ private fun PlayerPage(
         PlayerSurfaceSection(
             state = state,
             player = player,
-            onBackClick = onBackClick,
+            onBackClick = {
+                if (state.isFullscreen) {
+                    onIntent(PlayerContract.UiIntent.ExitFullscreen)
+                } else {
+                    onBackClick()
+                }
+            },
             onIntent = onIntent,
             modifier = Modifier
         )

@@ -144,10 +144,22 @@ class PlayerViewModel @Inject constructor(
                         return@onSuccess
                     }
 
-                    val selectedSource = sources.firstOrNull { it.key == requestedSourceKey } ?: sources.first()
-                    val selectedEpisode = selectedSource.episodes.getOrElse(
-                        requestedEpisodeIndex.coerceIn(0, selectedSource.episodes.lastIndex)
-                    ) { selectedSource.episodes.first() }
+                    val defaultSource = sources.firstOrNull { source ->
+                        source.episodes.any { it.isHls }
+                    } ?: sources.first()
+
+                    val selectedSource =
+                        requestedSourceKey?.let { key -> sources.firstOrNull { it.key == key } }
+                            ?: defaultSource
+
+                    val selectedEpisode = if (requestedSourceKey == null) {
+                        selectedSource.episodes.firstOrNull { it.isHls }
+                            ?: selectedSource.episodes.first()
+                    } else {
+                        selectedSource.episodes.getOrElse(
+                            requestedEpisodeIndex.coerceIn(0, selectedSource.episodes.lastIndex)
+                        ) { selectedSource.episodes.first() }
+                    }
 
                     val resumePosition = loadResumePosition(
                         videoId = videoId,

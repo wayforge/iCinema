@@ -35,11 +35,13 @@ internal fun PlayerDetailsSection(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        PlayerHeadlineCard(
+        PlayerOverviewCard(
             title = state.video?.name.orEmpty(),
-            selectedSourceKey = state.selectedSourceKey,
+            selectedSource = selectedSource,
+            selectedEpisodeIndex = state.selectedEpisodeIndex,
             currentEpisodeTitle = state.currentEpisode?.title,
             isPlaying = state.isPlaying,
+            canPlayNext = state.canPlayNext,
             onOpenSources = onOpenSources,
             onOpenEpisodes = onOpenEpisodes
         )
@@ -51,21 +53,17 @@ internal fun PlayerDetailsSection(
             ?.let { description ->
                 PlayerDescriptionCard(description = description)
             }
-
-        PlayerEpisodeSummaryCard(
-            selectedSource = selectedSource,
-            selectedEpisodeIndex = state.selectedEpisodeIndex,
-            canPlayNext = state.canPlayNext
-        )
     }
 }
 
 @Composable
-private fun PlayerHeadlineCard(
+private fun PlayerOverviewCard(
     title: String,
-    selectedSourceKey: String?,
+    selectedSource: PlaySource?,
+    selectedEpisodeIndex: Int,
     currentEpisodeTitle: String?,
     isPlaying: Boolean,
+    canPlayNext: Boolean,
     onOpenSources: () -> Unit,
     onOpenEpisodes: () -> Unit
 ) {
@@ -76,13 +74,14 @@ private fun PlayerHeadlineCard(
     ) {
         Column(
             modifier = Modifier.padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
                 text = title,
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold
             )
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
@@ -93,17 +92,29 @@ private fun PlayerHeadlineCard(
                     color = MaterialTheme.colorScheme.primary
                 )
                 Text(
-                    text = currentEpisodeTitle ?: "未选择剧集",
+                    text = if (canPlayNext) "可继续下一集" else "已是最后一集",
                     style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+
+            Text(
+                text = buildString {
+                    append(selectedSource?.key ?: "暂无线路")
+                    append(" · ")
+                    append(currentEpisodeTitle ?: selectedSource?.episodes?.getOrNull(selectedEpisodeIndex)?.title ?: "未选择剧集")
+                },
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = false,
                     onClick = onOpenSources,
-                    label = { Text(selectedSourceKey ?: "线路") },
+                    label = { Text(selectedSource?.key ?: "线路") },
                     leadingIcon = {
                         Icon(Icons.Filled.LiveTv, contentDescription = null)
                     }
@@ -147,42 +158,6 @@ private fun PlayerDescriptionCard(description: String) {
     }
 }
 
-@Composable
-private fun PlayerEpisodeSummaryCard(
-    selectedSource: PlaySource?,
-    selectedEpisodeIndex: Int,
-    canPlayNext: Boolean
-) {
-    Surface(
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text(
-                text = "当前播放",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Text(
-                text = buildString {
-                    append(selectedSource?.key ?: "暂无线路")
-                    append(" · ")
-                    append(selectedSource?.episodes?.getOrNull(selectedEpisodeIndex)?.title ?: "未选择剧集")
-                },
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = if (canPlayNext) "可继续下一集" else "已是最后一集",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
 
 @Preview(showBackground = true, backgroundColor = 0xFF111111, widthDp = 412)
 @Composable

@@ -11,7 +11,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.icinema.pages.detail.DetailActivity
+import com.icinema.pages.player.PlayerActivity
 import com.icinema.ui.theme.iCinemaTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -37,7 +37,12 @@ class HomeActivity : ComponentActivity() {
                     HomeScreen(
                         viewModel = viewModel<HomeViewModel>(),
                         onVideoClick = { videoId ->
-                            DetailActivity.start(this@HomeActivity, videoId)
+                            PlayerActivity.start(
+                                context = this@HomeActivity,
+                                videoId = videoId,
+                                sourceKey = null,
+                                episodeIndex = 0
+                            )
                         }
                     )
                 }
