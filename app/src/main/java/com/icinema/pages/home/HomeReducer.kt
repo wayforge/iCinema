@@ -72,6 +72,20 @@ class HomeReducer @Inject constructor() {
                     searchKeyword = ""
                 )
             }
+
+            is HomeContract.Mutation.VisibleCategoriesUpdated -> {
+                val currentSelected = current.selectedCategoryId
+                val nextSelected = if (currentSelected != null && mutation.visibleCategories.none { it.id == currentSelected }) {
+                    null
+                } else {
+                    currentSelected
+                }
+                current.copy(
+                    visibleCategories = mutation.visibleCategories,
+                    selectedCategoryIds = mutation.selectedCategoryIds,
+                    selectedCategoryId = nextSelected
+                )
+            }
         }
     }
 }

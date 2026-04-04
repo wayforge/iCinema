@@ -144,8 +144,8 @@ private fun PlayerScreen(
         }
     }
 
-    BackHandler(enabled = state.isFullscreen) {
-        viewModel.handleIntent(PlayerContract.UiIntent.ExitFullscreen)
+    BackHandler {
+        onBackClick()
     }
 
     PlayerContent(

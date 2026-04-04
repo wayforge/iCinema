@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,8 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Forward10
-import androidx.compose.material.icons.filled.Fullscreen
-import androidx.compose.material.icons.filled.FullscreenExit
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -28,6 +26,7 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -65,15 +64,7 @@ internal fun PlayerSurfaceSection(
     Box(
         modifier = modifier
             .background(Color.Black)
-            .then(
-                if (state.isFullscreen) {
-                    Modifier.fillMaxSize()
-                } else {
-                    Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(16f / 9f)
-                }
-            )
+            .fillMaxSize()
             .clickable { onIntent(PlayerContract.UiIntent.ToggleControls) }
     ) {
         PlayerRuntimeSurface(
@@ -237,7 +228,6 @@ private fun PlayerControlsOverlay(
     ) {
         PlayerTopBar(
             title = state.video?.name.orEmpty(),
-            isFullscreen = state.isFullscreen,
             onBackClick = onBackClick,
             onIntent = onIntent
         )
@@ -264,7 +254,6 @@ private fun PlayerControlsOverlay(
 @Composable
 private fun PlayerTopBar(
     title: String,
-    isFullscreen: Boolean,
     onBackClick: () -> Unit,
     onIntent: (PlayerContract.UiIntent) -> Unit
 ) {
@@ -284,15 +273,12 @@ private fun PlayerTopBar(
         )
         IconButton(
             onClick = {
-                onIntent(
-                    if (isFullscreen) PlayerContract.UiIntent.ExitFullscreen
-                    else PlayerContract.UiIntent.EnterFullscreen
-                )
+                onIntent(PlayerContract.UiIntent.OpenSheet(PlayerContract.SheetMode.Details))
             }
         ) {
             Icon(
-                imageVector = if (isFullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
-                contentDescription = null,
+                imageVector = Icons.Filled.Info,
+                contentDescription = "详情",
                 tint = Color.White
             )
         }

@@ -30,7 +30,9 @@ internal fun PlayerSheetHost(
     selectedSource: PlaySource?,
     onDismiss: () -> Unit,
     onSelectSource: (String) -> Unit,
-    onSelectEpisode: (Int) -> Unit
+    onSelectEpisode: (Int) -> Unit,
+    onOpenSources: () -> Unit,
+    onOpenEpisodes: () -> Unit
 ) {
     if (sheetMode == null) return
 
@@ -56,6 +58,18 @@ internal fun PlayerSheetHost(
                         val index = selectedSource?.episodes?.indexOfFirst { it.title == title } ?: -1
                         if (index >= 0) onSelectEpisode(index)
                     }
+                )
+            }
+
+            PlayerContract.SheetMode.Details -> {
+                PlayerDetailsSection(
+                    state = state,
+                    selectedSource = selectedSource,
+                    onOpenSources = onOpenSources,
+                    onOpenEpisodes = onOpenEpisodes,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
                 )
             }
         }

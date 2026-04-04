@@ -37,7 +37,9 @@ fun PlayerContent(
         },
         onSelectEpisode = { episodeIndex ->
             onIntent(PlayerContract.UiIntent.SelectEpisode(episodeIndex))
-        }
+        },
+        onOpenSources = { onIntent(PlayerContract.UiIntent.OpenSheet(PlayerContract.SheetMode.Sources)) },
+        onOpenEpisodes = { onIntent(PlayerContract.UiIntent.OpenSheet(PlayerContract.SheetMode.Episodes)) }
     )
 
     AutoDismissPlayerControls(state = state, onIntent = onIntent)
@@ -109,25 +111,9 @@ private fun PlayerPage(
         PlayerSurfaceSection(
             state = state,
             player = player,
-            onBackClick = {
-                if (state.isFullscreen) {
-                    onIntent(PlayerContract.UiIntent.ExitFullscreen)
-                } else {
-                    onBackClick()
-                }
-            },
+            onBackClick = onBackClick,
             onIntent = onIntent,
             modifier = Modifier
         )
-
-        if (!state.isFullscreen) {
-            PlayerDetailsSection(
-                state = state,
-                selectedSource = selectedSource,
-                onOpenSources = onOpenSources,
-                onOpenEpisodes = onOpenEpisodes,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 18.dp)
-            )
-        }
     }
 }

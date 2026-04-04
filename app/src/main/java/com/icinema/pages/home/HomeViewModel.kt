@@ -2,6 +2,8 @@ package com.icinema.pages.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.icinema.domain.model.Category
+import com.icinema.pages.category.CategorySelectionStore
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.channels.Channel
@@ -15,7 +17,8 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val bizPort: HomeBizPort,
-    private val reducer: HomeReducer
+    private val reducer: HomeReducer,
+    private val categorySelectionStore: CategorySelectionStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeContract.UiState())
@@ -34,10 +37,36 @@ class HomeViewModel @Inject constructor(
             bizPort.loadCategories()
                 .onSuccess { categories ->
                     commit(HomeContract.Mutation.CategoriesLoaded(categories))
+                    applyCategoryVisibility(categories)
                 }
                 .onFailure { exception ->
                     emitEffect(HomeContract.UiEffect.ShowToast(exception.message ?: "分类加载失败"))
                 }
+        }
+    }
+
+    fun reloadCategories() {
+        loadCategories()
+    }
+
+    private fun applyCategoryVisibility(categories: List<Category>) {
+        val allCategoryIds = categories.map { it.id }.toSet()
+        val persisted = if (categorySelectionStore.hasSavedSelection()) {
+            categorySelectionStore.loadSelectedCategoryIds()
+        } else {
+            allCategoryIds
+        }
+        val resolved = categorySelectionStore.resolveVisibleCategoryIds(persisted, allCategoryIds)
+        if (persisted != resolved || !categorySelectionStore.hasSavedSelection()) {
+            categorySelectionStore.saveSelectedCategoryIds(resolved)
+        }
+        val visible = categories.filter { it.id in resolved }
+        commit(HomeContract.Mutation.VisibleCategoriesUpdated(visible, resolved))
+
+        val currentSelected = _uiState.value.selectedCategoryId
+        if (currentSelected != null && currentSelected !in resolved) {
+            commit(HomeContract.Mutation.CategoryChanged(null))
+            handleIntent(HomeContract.UiIntent.LoadVideos(page = 1, categoryId = null))
         }
     }
 
@@ -169,6 +198,7 @@ class HomeViewModel @Inject constructor(
         commit(HomeContract.Mutation.SearchModeChanged(isSearchMode = false, keyword = ""))
         handleIntent(HomeContract.UiIntent.LoadVideos(page = 1, categoryId = categoryId))
     }
+
 
     private fun commit(mutation: HomeContract.Mutation) {
         _uiState.value = reducer.reduce(_uiState.value, mutation)

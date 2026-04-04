@@ -16,7 +16,9 @@ object HomeContract {
         val isSearchMode: Boolean = false,
         val searchKeyword: String = "",
         val categories: List<Category> = emptyList(),
-        val selectedCategoryId: Int? = null
+        val visibleCategories: List<Category> = emptyList(),
+        val selectedCategoryId: Int? = null,
+        val selectedCategoryIds: Set<Int> = emptySet()
     )
 
     sealed interface UiIntent {
@@ -60,5 +62,9 @@ object HomeContract {
         data class LoadFailed(val message: String) : Mutation
         data class SearchModeChanged(val isSearchMode: Boolean, val keyword: String) : Mutation
         data class CategoryChanged(val categoryId: Int?) : Mutation
+        data class VisibleCategoriesUpdated(
+            val visibleCategories: List<Category>,
+            val selectedCategoryIds: Set<Int>
+        ) : Mutation
     }
 }

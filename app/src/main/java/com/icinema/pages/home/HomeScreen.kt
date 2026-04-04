@@ -43,7 +43,8 @@ import com.icinema.pages.widgets.LoadingScreen
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
-    onVideoClick: (Long) -> Unit
+    onVideoClick: (Long) -> Unit,
+    onOpenCategoryEditor: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -72,6 +73,7 @@ fun HomeScreen(
         onClearSearch = {
             viewModel.handleIntent(HomeContract.UiIntent.ClearSearch)
         },
+        onOpenCategoryEditor = onOpenCategoryEditor,
         onLoadMore = { viewModel.handleIntent(HomeContract.UiIntent.LoadMore) }
     )
 }
@@ -290,6 +292,7 @@ fun HomeContent(
     onCategorySelected: (Int?) -> Unit,
     onSearch: (String) -> Unit,
     onClearSearch: () -> Unit,
+    onOpenCategoryEditor: () -> Unit,
     onLoadMore: () -> Unit
 ) {
     var searchQuery by remember { mutableStateOf(state.searchKeyword) }
@@ -351,6 +354,11 @@ fun HomeContent(
                         }
                     },
                     actions = {
+                        if (!state.isSearchMode) {
+                            TextButton(onClick = onOpenCategoryEditor) {
+                                Text("编辑分类")
+                            }
+                        }
                         IconButton(onClick = {
                             if (isSearchActive) {
                                 isSearchActive = false
@@ -373,12 +381,12 @@ fun HomeContent(
                 )
 
                 AnimatedVisibility(
-                    visible = !isSearchActive && state.categories.isNotEmpty(),
+                    visible = !isSearchActive && state.visibleCategories.isNotEmpty(),
                     enter = fadeIn() + expandVertically(),
                     exit = fadeOut() + shrinkVertically()
                 ) {
                     CategoryTabs(
-                        categories = state.categories,
+                        categories = state.visibleCategories,
                         selectedCategoryId = state.selectedCategoryId,
                         onCategorySelected = onCategorySelected
                     )

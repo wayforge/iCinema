@@ -7,7 +7,8 @@ import com.icinema.domain.model.Video
 object PlayerContract {
     enum class SheetMode {
         Sources,
-        Episodes
+        Episodes,
+        Details
     }
 
     data class UiState(
@@ -27,7 +28,7 @@ object PlayerContract {
         val error: String? = null,
         val canPlayNext: Boolean = false,
         val cacheEnabled: Boolean = true,
-        val isFullscreen: Boolean = false,
+        val isFullscreen: Boolean = true,
         val resumePositionMs: Long? = null,
         val activeSheetMode: SheetMode? = null
     )

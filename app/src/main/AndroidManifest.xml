@@ -39,6 +39,14 @@
             android:parentActivityName=".pages.home.HomeActivity" />
 
         <activity
+            android:name=".pages.category.CategoryActivity"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.ICinema"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:parentActivityName=".pages.home.HomeActivity" />
+
+        <activity
             android:name=".pages.player.PlayerActivity"
             android:exported="false"
             android:label="@string/app_name"

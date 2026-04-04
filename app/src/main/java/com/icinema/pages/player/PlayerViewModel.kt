@@ -119,7 +119,7 @@ class PlayerViewModel @Inject constructor(
             }
 
             PlayerContract.UiIntent.ExitFullscreen -> {
-                commit(PlayerContract.Mutation.FullscreenChanged(false))
+                commit(PlayerContract.Mutation.FullscreenChanged(true))
             }
 
             PlayerContract.UiIntent.AcceptResume -> {
