@@ -106,6 +106,14 @@ class PlayerViewModel @Inject constructor(
                 )
             }
 
+            is PlayerContract.UiIntent.OpenSheet -> {
+                commit(PlayerContract.Mutation.SheetModeChanged(intent.mode))
+            }
+
+            PlayerContract.UiIntent.DismissSheet -> {
+                commit(PlayerContract.Mutation.SheetModeChanged(null))
+            }
+
             PlayerContract.UiIntent.EnterFullscreen -> {
                 commit(PlayerContract.Mutation.FullscreenChanged(true))
             }

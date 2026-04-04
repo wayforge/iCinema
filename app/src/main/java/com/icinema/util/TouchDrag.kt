@@ -6,7 +6,7 @@ import android.view.View
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
-import com.chat.zain.page.activity.ZcBasisActivity
+import androidx.activity.ComponentActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -42,7 +42,7 @@ import kotlinx.coroutines.launch
  * drag.stopDrag()
  * ```
  */
-class TouchDrag(activity: ZcBasisActivity) : DefaultLifecycleObserver {
+class TouchDrag(activity: ComponentActivity) : DefaultLifecycleObserver {
 
     private val targetView: View = activity.window.decorView
     private val lifecycle: Lifecycle = activity.lifecycle

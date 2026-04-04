@@ -6,9 +6,9 @@ import android.view.View
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
-import com.chat.zain.page.activity.ZcBasisActivity
+import androidx.activity.ComponentActivity
 
-class TouchSwipe(activity: ZcBasisActivity) : DefaultLifecycleObserver {
+class TouchSwipe(activity: ComponentActivity) : DefaultLifecycleObserver {
 
     private val targetView: View = activity.window.decorView
     private val lifecycle: Lifecycle = activity.lifecycle

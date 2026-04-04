@@ -1,0 +1,17 @@
+{
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "weihl_7r49",
+    "ANTHROPIC_BASE_URL": "http://170.106.159.162:8317/v1",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "gpt-5.4",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "gpt-5.4",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "gpt-5.4"
+  },
+  "permissions": {
+    "allow": [
+      "WebFetch"
+    ],
+    "defaultMode": "acceptEdits"
+  },
+  "model": "opus",
+  "language": "中文"
+}

@@ -25,7 +25,7 @@ import com.icinema.ui.theme.iCinemaTheme
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun PlayerSheetHost(
-    sheetMode: PlayerSheetMode?,
+    sheetMode: PlayerContract.SheetMode?,
     state: PlayerContract.UiState,
     selectedSource: PlaySource?,
     onDismiss: () -> Unit,
@@ -36,7 +36,7 @@ internal fun PlayerSheetHost(
 
     ModalBottomSheet(onDismissRequest = onDismiss) {
         when (sheetMode) {
-            PlayerSheetMode.Sources -> {
+            PlayerContract.SheetMode.Sources -> {
                 SelectionSheet(
                     title = "切换线路",
                     items = state.playSources.map { it.key },
@@ -45,7 +45,7 @@ internal fun PlayerSheetHost(
                 )
             }
 
-            PlayerSheetMode.Episodes -> {
+            PlayerContract.SheetMode.Episodes -> {
                 SelectionSheet(
                     title = "选集",
                     items = selectedSource?.episodes?.map { it.title }.orEmpty(),

@@ -17,15 +17,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.FastForward
-import androidx.compose.material.icons.filled.FastRewind
+import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -221,8 +224,16 @@ private fun PlayerControlsOverlay(
 ) {
     Column(
         modifier = modifier
-            .background(Color.Black.copy(alpha = 0.38f))
-            .padding(12.dp)
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Black.copy(alpha = 0.62f),
+                        Color.Transparent,
+                        Color.Black.copy(alpha = 0.68f)
+                    )
+                )
+            )
+            .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
         PlayerTopBar(
             title = state.video?.name.orEmpty(),
@@ -295,21 +306,26 @@ private fun PlayerTransportControls(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.Center,
+        horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
         IconButton(onClick = { onIntent(PlayerContract.UiIntent.PlayPrevious) }) {
-            Icon(Icons.Filled.FastRewind, contentDescription = null, tint = Color.White)
+            Icon(Icons.Filled.SkipPrevious, contentDescription = null, tint = Color.White)
         }
-        IconButton(onClick = { onIntent(PlayerContract.UiIntent.TogglePlayPause) }) {
+        IconButton(onClick = { onIntent(PlayerContract.UiIntent.SeekBackward) }) {
+            Icon(Icons.Filled.Replay10, contentDescription = null, tint = Color.White)
+        }
+        FilledIconButton(onClick = { onIntent(PlayerContract.UiIntent.TogglePlayPause) }) {
             Icon(
                 imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                contentDescription = null,
-                tint = Color.White
+                contentDescription = null
             )
         }
+        IconButton(onClick = { onIntent(PlayerContract.UiIntent.SeekForward) }) {
+            Icon(Icons.Filled.Forward10, contentDescription = null, tint = Color.White)
+        }
         IconButton(onClick = { onIntent(PlayerContract.UiIntent.PlayNext) }) {
-            Icon(Icons.Filled.FastForward, contentDescription = null, tint = Color.White)
+            Icon(Icons.Filled.SkipNext, contentDescription = null, tint = Color.White)
         }
     }
 }
@@ -326,7 +342,8 @@ private fun PlayerTimeline(
         Slider(
             value = currentPositionMs.toFloat(),
             onValueChange = { onSeek(it.toLong()) },
-            valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat()
+            valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
+            modifier = Modifier.fillMaxWidth()
         )
         LinearProgressIndicator(
             progress = {

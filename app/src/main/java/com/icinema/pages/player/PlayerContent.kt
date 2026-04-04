@@ -1,5 +1,8 @@
 package com.icinema.pages.player
 
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -7,23 +10,11 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.media3.exoplayer.ExoPlayer
 import com.icinema.domain.model.PlaySource
 import kotlinx.coroutines.delay
-
-internal enum class PlayerSheetMode {
-    Sources,
-    Episodes
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,20 +25,17 @@ fun PlayerContent(
     onIntent: (PlayerContract.UiIntent) -> Unit,
     snackbarHostState: SnackbarHostState
 ) {
-    var sheetMode by remember { mutableStateOf<PlayerSheetMode?>(null) }
     val selectedSource = state.playSources.firstOrNull { it.key == state.selectedSourceKey }
 
     PlayerSheetHost(
-        sheetMode = sheetMode,
+        sheetMode = state.activeSheetMode,
         state = state,
         selectedSource = selectedSource,
-        onDismiss = { sheetMode = null },
+        onDismiss = { onIntent(PlayerContract.UiIntent.DismissSheet) },
         onSelectSource = { sourceKey ->
-            sheetMode = null
             onIntent(PlayerContract.UiIntent.SelectSource(sourceKey))
         },
         onSelectEpisode = { episodeIndex ->
-            sheetMode = null
             onIntent(PlayerContract.UiIntent.SelectEpisode(episodeIndex))
         }
     )
@@ -70,8 +58,8 @@ fun PlayerContent(
             selectedSource = selectedSource,
             onBackClick = onBackClick,
             onIntent = onIntent,
-            onOpenSources = { sheetMode = PlayerSheetMode.Sources },
-            onOpenEpisodes = { sheetMode = PlayerSheetMode.Episodes },
+            onOpenSources = { onIntent(PlayerContract.UiIntent.OpenSheet(PlayerContract.SheetMode.Sources)) },
+            onOpenEpisodes = { onIntent(PlayerContract.UiIntent.OpenSheet(PlayerContract.SheetMode.Episodes)) },
             modifier = Modifier.padding(paddingValues)
         )
     }

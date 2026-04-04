@@ -60,7 +60,8 @@ class PlayerReducer @Inject constructor() {
                     currentPositionMs = 0,
                     durationMs = 0,
                     bufferedPositionMs = 0,
-                    resumePositionMs = null
+                    resumePositionMs = null,
+                    activeSheetMode = null
                 )
             }
 
@@ -73,7 +74,8 @@ class PlayerReducer @Inject constructor() {
                     currentPositionMs = 0,
                     durationMs = 0,
                     bufferedPositionMs = 0,
-                    resumePositionMs = null
+                    resumePositionMs = null,
+                    activeSheetMode = null
                 )
             }
 
@@ -94,6 +96,10 @@ class PlayerReducer @Inject constructor() {
 
             is PlayerContract.Mutation.ControlsVisibilityChanged -> {
                 current.copy(controlsVisible = mutation.visible)
+            }
+
+            is PlayerContract.Mutation.SheetModeChanged -> {
+                current.copy(activeSheetMode = mutation.mode)
             }
 
             is PlayerContract.Mutation.FullscreenChanged -> {

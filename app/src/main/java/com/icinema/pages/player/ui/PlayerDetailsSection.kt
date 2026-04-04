@@ -39,6 +39,7 @@ internal fun PlayerDetailsSection(
             title = state.video?.name.orEmpty(),
             selectedSourceKey = state.selectedSourceKey,
             currentEpisodeTitle = state.currentEpisode?.title,
+            isPlaying = state.isPlaying,
             onOpenSources = onOpenSources,
             onOpenEpisodes = onOpenEpisodes
         )
@@ -64,6 +65,7 @@ private fun PlayerHeadlineCard(
     title: String,
     selectedSourceKey: String?,
     currentEpisodeTitle: String?,
+    isPlaying: Boolean,
     onOpenSources: () -> Unit,
     onOpenEpisodes: () -> Unit
 ) {
@@ -81,6 +83,22 @@ private fun PlayerHeadlineCard(
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold
             )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = if (isPlaying) "播放中" else "已暂停",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Text(
+                    text = currentEpisodeTitle ?: "未选择剧集",
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = false,
@@ -93,7 +111,7 @@ private fun PlayerHeadlineCard(
                 FilterChip(
                     selected = false,
                     onClick = onOpenEpisodes,
-                    label = { Text(currentEpisodeTitle ?: "选集") },
+                    label = { Text("选集") },
                     leadingIcon = {
                         Icon(Icons.AutoMirrored.Filled.List, contentDescription = null)
                     }
@@ -158,7 +176,7 @@ private fun PlayerEpisodeSummaryCard(
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = if (canPlayNext) "支持继续切换下一集" else "当前已是最后一集或暂无更多内容",
+                text = if (canPlayNext) "可继续下一集" else "已是最后一集",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )

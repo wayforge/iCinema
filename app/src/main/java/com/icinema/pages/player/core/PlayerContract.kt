@@ -5,6 +5,11 @@ import com.icinema.domain.model.PlayableEpisode
 import com.icinema.domain.model.Video
 
 object PlayerContract {
+    enum class SheetMode {
+        Sources,
+        Episodes
+    }
+
     data class UiState(
         val videoId: Long? = null,
         val video: Video? = null,
@@ -23,7 +28,8 @@ object PlayerContract {
         val canPlayNext: Boolean = false,
         val cacheEnabled: Boolean = true,
         val isFullscreen: Boolean = false,
-        val resumePositionMs: Long? = null
+        val resumePositionMs: Long? = null,
+        val activeSheetMode: SheetMode? = null
     )
 
     sealed interface UiIntent {
@@ -43,6 +49,8 @@ object PlayerContract {
         data object PlayPrevious : UiIntent
         data object Retry : UiIntent
         data object ToggleControls : UiIntent
+        data class OpenSheet(val mode: SheetMode) : UiIntent
+        data object DismissSheet : UiIntent
         data object EnterFullscreen : UiIntent
         data object ExitFullscreen : UiIntent
         data object AcceptResume : UiIntent
@@ -98,6 +106,7 @@ object PlayerContract {
         ) : Mutation
 
         data class ControlsVisibilityChanged(val visible: Boolean) : Mutation
+        data class SheetModeChanged(val mode: SheetMode?) : Mutation
         data class FullscreenChanged(val isFullscreen: Boolean) : Mutation
         data class ErrorChanged(val message: String?) : Mutation
         data class ResumePositionChanged(val positionMs: Long?) : Mutation
