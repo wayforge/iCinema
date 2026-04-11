@@ -16,7 +16,9 @@ class DetailReducer @Inject constructor() {
                     error = null,
                     selectedPlaySource = null,
                     selectedEpisode = 0,
-                    selectedRange = 0
+                    selectedRange = 0,
+                    hasPlaybackHistory = false,
+                    restoredByFallback = false
                 )
             }
 
@@ -27,8 +29,11 @@ class DetailReducer @Inject constructor() {
                     video = mutation.video,
                     error = null,
                     selectedPlaySource = mutation.preferredSource,
-                    selectedEpisode = 0,
-                    selectedRange = 0
+                    selectedEpisode = mutation.preferredEpisode,
+                    selectedRange = mutation.preferredRange,
+                    isFavorite = mutation.isFavorite,
+                    hasPlaybackHistory = mutation.hasPlaybackHistory,
+                    restoredByFallback = mutation.restoredByFallback
                 )
             }
 
@@ -58,6 +63,10 @@ class DetailReducer @Inject constructor() {
 
             is DetailContract.Mutation.EpisodeChanged -> {
                 current.copy(selectedEpisode = mutation.episode)
+            }
+
+            is DetailContract.Mutation.FavoriteChanged -> {
+                current.copy(isFavorite = mutation.isFavorite)
             }
 
             DetailContract.Mutation.VideoCleared -> {

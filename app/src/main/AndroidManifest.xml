@@ -54,6 +54,20 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
             android:parentActivityName=".pages.detail.DetailActivity" />
 
+        <activity
+            android:name=".pages.history.HistoryActivity"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.ICinema"
+            android:parentActivityName=".pages.home.HomeActivity" />
+
+        <activity
+            android:name=".pages.favorite.FavoriteActivity"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.ICinema"
+            android:parentActivityName=".pages.home.HomeActivity" />
+
     </application>
 
 </manifest>

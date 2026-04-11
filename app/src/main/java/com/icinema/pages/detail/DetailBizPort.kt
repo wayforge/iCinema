@@ -3,11 +3,15 @@ package com.icinema.pages.detail
 import com.icinema.R
 import com.icinema.data.repository.ICmsRepository
 import com.icinema.domain.model.Video
+import com.icinema.domain.model.WatchHistoryItem
 import javax.inject.Inject
 import kotlinx.coroutines.delay
 
 interface DetailBizPort {
     suspend fun loadVideo(videoId: Long): Result<Video>
+    suspend fun loadLatestPlayback(videoId: Long): Result<WatchHistoryItem?>
+    suspend fun isFavorite(videoId: Long): Result<Boolean>
+    suspend fun toggleFavorite(video: Video): Result<Boolean>
 }
 
 class RepositoryDetailBizPort @Inject constructor(
@@ -15,6 +19,18 @@ class RepositoryDetailBizPort @Inject constructor(
 ) : DetailBizPort {
     override suspend fun loadVideo(videoId: Long): Result<Video> {
         return repository.getVideoDetail(videoId)
+    }
+
+    override suspend fun loadLatestPlayback(videoId: Long): Result<WatchHistoryItem?> {
+        return repository.getLatestPlaybackForVideo(videoId)
+    }
+
+    override suspend fun isFavorite(videoId: Long): Result<Boolean> {
+        return repository.isFavorite(videoId)
+    }
+
+    override suspend fun toggleFavorite(video: Video): Result<Boolean> {
+        return repository.toggleFavorite(video)
     }
 }
 
@@ -73,4 +89,10 @@ class FakeDetailBizPort(
             )
         )
     }
+
+    override suspend fun loadLatestPlayback(videoId: Long): Result<WatchHistoryItem?> = Result.success(null)
+
+    override suspend fun isFavorite(videoId: Long): Result<Boolean> = Result.success(false)
+
+    override suspend fun toggleFavorite(video: Video): Result<Boolean> = Result.success(true)
 }

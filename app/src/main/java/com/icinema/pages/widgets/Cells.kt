@@ -67,6 +67,7 @@ fun EmptyState(
     isSearchMode: Boolean,
     keyword: String,
     onClearSearch: () -> Unit,
+    onUseRecommendedKeyword: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -93,7 +94,18 @@ fun EmptyState(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         if (isSearchMode) {
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(12.dp))
+            onUseRecommendedKeyword?.let { onUseKeyword ->
+                Button(
+                    onClick = { onUseKeyword("动作") },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.secondary
+                    )
+                ) {
+                    Text("试试“动作”")
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
             Button(
                 onClick = onClearSearch,
                 colors = ButtonDefaults.buttonColors(

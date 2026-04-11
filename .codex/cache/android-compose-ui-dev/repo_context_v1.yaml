@@ -1,8 +1,8 @@
 {
   "version": "repo_context_v1",
-  "generated_at": "2026-03-30T06:00:30Z",
-  "repo_root": "/Users/Weihl/Documents/Project/wayforge/iCinema",
-  "git_head": "183da13046e16343f5c0047ee10b6a87c4bd9908",
+  "generated_at": "2026-04-11T05:09:07Z",
+  "repo_root": "/Users/Ngai/Github/iCinema",
+  "git_head": "43c478c1ccc67d56e145fb7c27dbcaaac1ee3cdd",
   "settings_files": [
     "settings.gradle.kts"
   ],
@@ -39,7 +39,8 @@
     "app/src/main/res/drawable*/ic_*.xml"
   ],
   "preview_patterns": [
-    "app/src/main/java/com/icinema/pages/detail contains @Preview"
+    "app/src/main/java/com/icinema/pages/detail contains @Preview",
+    "app/src/main/java/com/icinema/pages/player/ui contains @Preview"
   ],
   "recommended_build_checks": [
     ":app:compileDebugKotlin",

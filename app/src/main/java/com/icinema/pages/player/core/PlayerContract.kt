@@ -4,6 +4,8 @@ import com.icinema.domain.model.PlaySource
 import com.icinema.domain.model.PlayableEpisode
 import com.icinema.domain.model.Video
 
+private const val DEFAULT_PLAYBACK_SPEED = 1.0f
+
 object PlayerContract {
     enum class SheetMode {
         Sources,
@@ -30,7 +32,11 @@ object PlayerContract {
         val cacheEnabled: Boolean = true,
         val isFullscreen: Boolean = true,
         val resumePositionMs: Long? = null,
-        val activeSheetMode: SheetMode? = null
+        val activeSheetMode: SheetMode? = null,
+        val playbackSpeed: Float = DEFAULT_PLAYBACK_SPEED,
+        val autoPlayNextEnabled: Boolean = true,
+        val controlsLocked: Boolean = false,
+        val gestureSeekEnabled: Boolean = true
     )
 
     sealed interface UiIntent {
@@ -56,6 +62,11 @@ object PlayerContract {
         data object ExitFullscreen : UiIntent
         data object AcceptResume : UiIntent
         data object RestartFromBeginning : UiIntent
+        data class SetPlaybackSpeed(val speed: Float) : UiIntent
+        data object ToggleAutoPlayNext : UiIntent
+        data object ToggleControlsLock : UiIntent
+        data object ToggleGestureSeek : UiIntent
+        data class GestureSeek(val deltaMs: Long) : UiIntent
         data object OnLifecycleStart : UiIntent
         data object OnLifecycleStop : UiIntent
     }
@@ -111,5 +122,14 @@ object PlayerContract {
         data class FullscreenChanged(val isFullscreen: Boolean) : Mutation
         data class ErrorChanged(val message: String?) : Mutation
         data class ResumePositionChanged(val positionMs: Long?) : Mutation
+        data class SettingsLoaded(
+            val playbackSpeed: Float,
+            val autoPlayNextEnabled: Boolean,
+            val gestureSeekEnabled: Boolean
+        ) : Mutation
+        data class PlaybackSpeedChanged(val speed: Float) : Mutation
+        data class AutoPlayNextChanged(val enabled: Boolean) : Mutation
+        data class ControlsLockedChanged(val locked: Boolean) : Mutation
+        data class GestureSeekChanged(val enabled: Boolean) : Mutation
     }
 }

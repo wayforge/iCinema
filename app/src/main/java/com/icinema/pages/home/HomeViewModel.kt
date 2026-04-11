@@ -30,6 +30,9 @@ class HomeViewModel @Inject constructor(
     init {
         loadCategories()
         handleIntent(HomeContract.UiIntent.LoadVideos())
+        handleIntent(HomeContract.UiIntent.LoadContinueWatching)
+        handleIntent(HomeContract.UiIntent.LoadSearchSuggestions)
+        handleIntent(HomeContract.UiIntent.LoadRecommendations)
     }
 
     private fun loadCategories() {
@@ -47,6 +50,11 @@ class HomeViewModel @Inject constructor(
 
     fun reloadCategories() {
         loadCategories()
+    }
+
+    fun refreshPlaybackDrivenSections() {
+        handleIntent(HomeContract.UiIntent.LoadContinueWatching)
+        handleIntent(HomeContract.UiIntent.LoadRecommendations)
     }
 
     private fun applyCategoryVisibility(categories: List<Category>) {
@@ -127,6 +135,18 @@ class HomeViewModel @Inject constructor(
             is HomeContract.UiIntent.SelectCategory -> selectCategory(intent.categoryId)
             is HomeContract.UiIntent.Search -> search(intent.keyword)
             HomeContract.UiIntent.ClearSearch -> clearSearch()
+            HomeContract.UiIntent.LoadContinueWatching -> loadContinueWatching()
+            HomeContract.UiIntent.LoadSearchSuggestions -> loadSearchSuggestions()
+            is HomeContract.UiIntent.QuickSearch -> search(intent.keyword)
+            HomeContract.UiIntent.ClearSearchHistory -> clearSearchHistory()
+            HomeContract.UiIntent.LoadRecommendations -> loadRecommendations()
+            is HomeContract.UiIntent.ChangeSort -> changeSort(intent.sortMode)
+            is HomeContract.UiIntent.OpenVideoDetail -> openVideoDetail(intent.videoId)
+            is HomeContract.UiIntent.OpenContinueWatching -> openContinueWatching(
+                videoId = intent.videoId,
+                sourceKey = intent.sourceKey,
+                episodeIndex = intent.episodeIndex
+            )
         }
     }
 
@@ -163,27 +183,31 @@ class HomeViewModel @Inject constructor(
 
     private fun search(keyword: String) {
         viewModelScope.launch {
+            val normalized = keyword.trim()
             commit(
                 HomeContract.Mutation.LoadStarted(
                     page = 1,
                     isRefresh = false,
                     isSearchMode = true,
-                    keyword = keyword,
+                    keyword = normalized,
                     categoryId = null
                 )
             )
 
-            bizPort.searchVideos(keyword, page = 1)
+            bizPort.saveSearchKeyword(normalized)
+
+            bizPort.searchVideos(normalized, page = 1)
                 .onSuccess { videos ->
                     commit(
                         HomeContract.Mutation.LoadSucceeded(
                             videos = videos,
                             page = 1,
                             isSearchMode = true,
-                            keyword = keyword,
+                            keyword = normalized,
                             categoryId = null
                         )
                     )
+                    loadSearchSuggestions()
                 }
                 .onFailure { exception ->
                     val message = exception.message ?: "搜索失败"
@@ -199,6 +223,73 @@ class HomeViewModel @Inject constructor(
         handleIntent(HomeContract.UiIntent.LoadVideos(page = 1, categoryId = categoryId))
     }
 
+    private fun loadContinueWatching() {
+        viewModelScope.launch {
+            bizPort.loadContinueWatching(limit = 10)
+                .onSuccess { items ->
+                    commit(HomeContract.Mutation.ContinueWatchingLoaded(items))
+                }
+                .onFailure {
+                    commit(HomeContract.Mutation.ContinueWatchingLoaded(emptyList()))
+                }
+        }
+    }
+
+    private fun loadSearchSuggestions() {
+        viewModelScope.launch {
+            val history = bizPort.loadSearchHistory(limit = 20).getOrDefault(emptyList())
+            val hotKeywords = bizPort.loadHotKeywords().getOrDefault(emptyList())
+            commit(HomeContract.Mutation.SearchSuggestionsLoaded(history, hotKeywords))
+        }
+    }
+
+    private fun clearSearchHistory() {
+        viewModelScope.launch {
+            bizPort.clearSearchHistory()
+            loadSearchSuggestions()
+        }
+    }
+
+    private fun loadRecommendations() {
+        viewModelScope.launch {
+            val recommended = bizPort.loadRecommendations(limit = 10).getOrDefault(emptyList())
+            val sorted = applySort(recommended, _uiState.value.sortMode)
+            commit(HomeContract.Mutation.RecommendationsLoaded(sorted))
+        }
+    }
+
+    private fun changeSort(sortMode: HomeContract.SortMode) {
+        commit(HomeContract.Mutation.SortChanged(sortMode))
+        val sorted = applySort(_uiState.value.recommendedVideos, sortMode)
+        commit(HomeContract.Mutation.RecommendationsLoaded(sorted))
+    }
+
+    private fun openVideoDetail(videoId: Long) {
+        emitEffect(HomeContract.UiEffect.OpenDetail(videoId))
+    }
+
+    private fun openContinueWatching(videoId: Long, sourceKey: String, episodeIndex: Int) {
+        emitEffect(
+            HomeContract.UiEffect.OpenPlayer(
+                videoId = videoId,
+                sourceKey = sourceKey,
+                episodeIndex = episodeIndex
+            )
+        )
+    }
+
+    private fun applySort(videos: List<com.icinema.domain.model.Video>, sortMode: HomeContract.SortMode): List<com.icinema.domain.model.Video> {
+        return when (sortMode) {
+            HomeContract.SortMode.Latest -> videos.sortedWith(
+                compareByDescending<com.icinema.domain.model.Video> { it.id }
+                    .thenBy { it.name }
+            )
+            HomeContract.SortMode.Name -> videos.sortedWith(
+                compareBy<com.icinema.domain.model.Video> { it.name.lowercase() }
+                    .thenByDescending { it.id }
+            )
+        }
+    }
 
     private fun commit(mutation: HomeContract.Mutation) {
         _uiState.value = reducer.reduce(_uiState.value, mutation)

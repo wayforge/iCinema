@@ -1,11 +1,15 @@
 package com.icinema.pages.detail
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
@@ -55,7 +59,10 @@ class DetailActivity : ComponentActivity() {
                         context = this@DetailActivity,
                         viewModel = viewModel<DetailViewModel>(),
                         videoId = videoId,
-                        onBackClick = { finish() }
+                        onBackClick = { finish() },
+                        onRequestHomeRefresh = {
+                            setResult(Activity.RESULT_OK, Intent().putExtra(PlayerActivity.EXTRA_HOME_REFRESH, true))
+                        }
                     )
                 }
             }
@@ -68,10 +75,20 @@ private fun DetailScreen(
     context: Context,
     viewModel: DetailViewModel,
     videoId: Long,
-    onBackClick: () -> Unit
+    onBackClick: () -> Unit,
+    onRequestHomeRefresh: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val shouldRefreshHomeOnExit = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val playerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val shouldRefresh = result.data?.getBooleanExtra(PlayerActivity.EXTRA_HOME_REFRESH, false) == true
+        if (result.resultCode == Activity.RESULT_OK && shouldRefresh) {
+            shouldRefreshHomeOnExit.value = true
+        }
+    }
 
     LaunchedEffect(videoId) {
         viewModel.handleIntent(DetailContract.UiIntent.LoadVideo(videoId))
@@ -93,16 +110,27 @@ private fun DetailScreen(
         }
     }
 
+    val handleBack = {
+        if (shouldRefreshHomeOnExit.value) {
+            onRequestHomeRefresh()
+        }
+        onBackClick()
+    }
+
+    BackHandler(onBack = handleBack)
+
     DetailContent(
         state = state,
-        onBackClick = onBackClick,
+        onBackClick = handleBack,
         onIntent = viewModel::handleIntent,
         onOpenPlayer = { sourceKey, episodeIndex ->
-            PlayerActivity.start(
-                context = context,
-                videoId = videoId,
-                sourceKey = sourceKey,
-                episodeIndex = episodeIndex
+            playerLauncher.launch(
+                PlayerActivity.createIntent(
+                    context = context,
+                    videoId = videoId,
+                    sourceKey = sourceKey,
+                    episodeIndex = episodeIndex
+                )
             )
         },
         snackbarHostState = snackbarHostState

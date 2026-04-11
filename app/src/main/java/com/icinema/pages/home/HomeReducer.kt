@@ -86,6 +86,28 @@ class HomeReducer @Inject constructor() {
                     selectedCategoryId = nextSelected
                 )
             }
+
+            is HomeContract.Mutation.ContinueWatchingLoaded -> {
+                current.copy(
+                    continueWatching = mutation.items,
+                    historyCount = mutation.items.size
+                )
+            }
+
+            is HomeContract.Mutation.SearchSuggestionsLoaded -> {
+                current.copy(
+                    searchHistory = mutation.history,
+                    hotKeywords = mutation.hotKeywords
+                )
+            }
+
+            is HomeContract.Mutation.RecommendationsLoaded -> {
+                current.copy(recommendedVideos = mutation.videos)
+            }
+
+            is HomeContract.Mutation.SortChanged -> {
+                current.copy(sortMode = mutation.sortMode)
+            }
         }
     }
 }

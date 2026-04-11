@@ -113,6 +113,30 @@ class PlayerReducer @Inject constructor() {
             is PlayerContract.Mutation.ResumePositionChanged -> {
                 current.copy(resumePositionMs = mutation.positionMs)
             }
+
+            is PlayerContract.Mutation.SettingsLoaded -> {
+                current.copy(
+                    playbackSpeed = mutation.playbackSpeed,
+                    autoPlayNextEnabled = mutation.autoPlayNextEnabled,
+                    gestureSeekEnabled = mutation.gestureSeekEnabled
+                )
+            }
+
+            is PlayerContract.Mutation.PlaybackSpeedChanged -> {
+                current.copy(playbackSpeed = mutation.speed)
+            }
+
+            is PlayerContract.Mutation.AutoPlayNextChanged -> {
+                current.copy(autoPlayNextEnabled = mutation.enabled)
+            }
+
+            is PlayerContract.Mutation.ControlsLockedChanged -> {
+                current.copy(controlsLocked = mutation.locked)
+            }
+
+            is PlayerContract.Mutation.GestureSeekChanged -> {
+                current.copy(gestureSeekEnabled = mutation.enabled)
+            }
         }
     }
 

@@ -43,6 +43,8 @@ class PlayerViewModel @Inject constructor(
         .build()
 
     private var progressJob: Job? = null
+    private var autoSwitchedForPlaybackKey: String? = null
+    private var shouldRefreshHomeOnExit: Boolean = false
 
     private val playerListener = object : Media3Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -72,6 +74,21 @@ class PlayerViewModel @Inject constructor(
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            val state = _uiState.value
+            val playbackKey = buildPlaybackKey(state)
+            if (playbackKey != null && autoSwitchedForPlaybackKey != playbackKey) {
+                val source = state.playSources.firstOrNull { it.key == state.selectedSourceKey }
+                val currentEpisode = source?.episodes?.getOrNull(state.selectedEpisodeIndex)
+                if (source != null && currentEpisode != null) {
+                    val alternative = source.episodes.firstOrNull { it.index != currentEpisode.index && it.isHls }
+                    if (alternative != null) {
+                        autoSwitchedForPlaybackKey = playbackKey
+                        handleIntent(PlayerContract.UiIntent.SelectEpisode(alternative.index))
+                        emitEffect(PlayerContract.UiEffect.ShowMessage("当前线路异常，已自动切换可用剧集重试"))
+                        return
+                    }
+                }
+            }
             val message = error.message ?: "播放失败"
             commit(PlayerContract.Mutation.ErrorChanged(message))
             emitEffect(PlayerContract.UiEffect.ShowMessage(message))
@@ -80,6 +97,17 @@ class PlayerViewModel @Inject constructor(
 
     init {
         player.addListener(playerListener)
+        viewModelScope.launch {
+            val settings = bizPort.loadPlayerSettings()
+            commit(
+                PlayerContract.Mutation.SettingsLoaded(
+                    playbackSpeed = settings.playbackSpeed,
+                    autoPlayNextEnabled = settings.autoPlayNextEnabled,
+                    gestureSeekEnabled = settings.gestureSeekEnabled
+                )
+            )
+            player.setPlaybackSpeed(settings.playbackSpeed)
+        }
     }
 
     fun handleIntent(intent: PlayerContract.UiIntent) {
@@ -99,11 +127,13 @@ class PlayerViewModel @Inject constructor(
             PlayerContract.UiIntent.PlayPrevious -> playPrevious()
             PlayerContract.UiIntent.Retry -> retry()
             PlayerContract.UiIntent.ToggleControls -> {
-                commit(
-                    PlayerContract.Mutation.ControlsVisibilityChanged(
-                        !_uiState.value.controlsVisible
+                if (!_uiState.value.controlsLocked) {
+                    commit(
+                        PlayerContract.Mutation.ControlsVisibilityChanged(
+                            !_uiState.value.controlsVisible
+                        )
                     )
-                )
+                }
             }
 
             is PlayerContract.UiIntent.OpenSheet -> {
@@ -127,6 +157,11 @@ class PlayerViewModel @Inject constructor(
             }
 
             PlayerContract.UiIntent.RestartFromBeginning -> restartFromBeginning()
+            is PlayerContract.UiIntent.SetPlaybackSpeed -> setPlaybackSpeed(intent.speed)
+            PlayerContract.UiIntent.ToggleAutoPlayNext -> toggleAutoPlayNext()
+            PlayerContract.UiIntent.ToggleControlsLock -> toggleControlsLock()
+            PlayerContract.UiIntent.ToggleGestureSeek -> toggleGestureSeek()
+            is PlayerContract.UiIntent.GestureSeek -> seekBy(intent.deltaMs)
             PlayerContract.UiIntent.OnLifecycleStart -> Unit
             PlayerContract.UiIntent.OnLifecycleStop -> onStop()
         }
@@ -332,7 +367,9 @@ class PlayerViewModel @Inject constructor(
 
     private suspend fun onPlaybackCompleted() {
         saveCurrentProgress(clearCompleted = true)
-        playNext()
+        if (_uiState.value.autoPlayNextEnabled) {
+            playNext()
+        }
     }
 
     private fun onStop() {
@@ -342,10 +379,54 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    fun consumeHomeRefreshSignal(): Boolean {
+        val shouldRefresh = shouldRefreshHomeOnExit
+        shouldRefreshHomeOnExit = false
+        return shouldRefresh
+    }
+
     private fun restartFromBeginning() {
         player.seekTo(0L)
         commit(PlayerContract.Mutation.ResumePositionChanged(null))
         updatePlaybackPosition()
+    }
+
+    private fun setPlaybackSpeed(speed: Float) {
+        val nextSpeed = speed.coerceIn(0.75f, 2.0f)
+        player.setPlaybackSpeed(nextSpeed)
+        commit(PlayerContract.Mutation.PlaybackSpeedChanged(nextSpeed))
+        persistPlayerSettings()
+    }
+
+    private fun toggleAutoPlayNext() {
+        val next = !_uiState.value.autoPlayNextEnabled
+        commit(PlayerContract.Mutation.AutoPlayNextChanged(next))
+        persistPlayerSettings()
+    }
+
+    private fun toggleControlsLock() {
+        val nextLocked = !_uiState.value.controlsLocked
+        commit(PlayerContract.Mutation.ControlsLockedChanged(nextLocked))
+        commit(PlayerContract.Mutation.ControlsVisibilityChanged(true))
+    }
+
+    private fun toggleGestureSeek() {
+        val next = !_uiState.value.gestureSeekEnabled
+        commit(PlayerContract.Mutation.GestureSeekChanged(next))
+        persistPlayerSettings()
+    }
+
+    private fun persistPlayerSettings() {
+        val state = _uiState.value
+        viewModelScope.launch {
+            bizPort.savePlayerSettings(
+                PlayerSettings(
+                    playbackSpeed = state.playbackSpeed,
+                    autoPlayNextEnabled = state.autoPlayNextEnabled,
+                    gestureSeekEnabled = state.gestureSeekEnabled
+                )
+            )
+        }
     }
 
     private fun updatePlaybackPosition() {
@@ -381,7 +462,8 @@ class PlayerViewModel @Inject constructor(
         val episode = state.currentEpisode ?: return
 
         if (clearCompleted) {
-            bizPort.clearProgressOnComplete(videoId, sourceKey, episode.index)
+            bizPort.markProgressCompleted(videoId, sourceKey, episode.index)
+            shouldRefreshHomeOnExit = true
             return
         }
 
@@ -389,7 +471,23 @@ class PlayerViewModel @Inject constructor(
         val positionMs = player.currentPosition.coerceAtLeast(0L)
         if (durationMs <= 0L || positionMs <= 0L) return
 
-        bizPort.saveProgress(videoId, sourceKey, episode.index, positionMs, durationMs)
+        bizPort.saveProgress(
+            videoId = videoId,
+            videoName = state.video?.name.orEmpty(),
+            videoPic = state.video?.pic.orEmpty(),
+            sourceKey = sourceKey,
+            episodeIndex = episode.index,
+            episodeTitle = episode.title,
+            positionMs = positionMs,
+            durationMs = durationMs
+        )
+        shouldRefreshHomeOnExit = true
+    }
+
+    private fun buildPlaybackKey(state: PlayerContract.UiState): String? {
+        val videoId = state.videoId ?: return null
+        val source = state.selectedSourceKey ?: return null
+        return "$videoId:$source:${state.selectedEpisodeIndex}"
     }
 
     private fun commit(mutation: PlayerContract.Mutation) {

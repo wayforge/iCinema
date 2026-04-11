@@ -2,41 +2,33 @@
 
 ## Summary
 
-- 当前项目已经具备统一的真实数据接入主链路：`ViewModel -> BizPort -> Repository-backed BizPort -> ICmsRepository -> CmsRepositoryImpl -> CmsApiService`。
-- `home` 和 `detail` 两个 feature 目前都属于 `real`，不再是 UI 直连 repository。
-- `detail` 的 fake 边界保留在 `FakeDetailBizPort`，但运行绑定已经切到 `RepositoryDetailBizPort`，因此当前线上链路是实数据。
-- 当前仓库的关键不是底层用的是 Retrofit 还是 OkHttp，而是逻辑 endpoint `ac=detail` 被同一个接口以不同参数模式复用：
-  - 列表：`pg` / `t`
-  - 搜索：`wd` / `pg`
-  - 详情：`ids`
+- 当前项目继续沿用统一真实数据主链：`ViewModel -> BizPort -> Repository-backed BizPort -> ICmsRepository -> CmsRepositoryImpl -> CmsApiService / Room DAO`。
+- `detail` 现已从仅依赖远端详情数据，升级为 `mixed local+remote real` 的真实接入路径：详情基础数据来自 `ICmsRepository.getVideoDetail(videoId)`，最近播放上下文来自 `PlaybackHistoryDao.getLatestHistoryForVideo(videoId)`，两者统一收口到 `DetailBizPort`。
+- 详情页的恢复逻辑没有绕过 BizPort 或直接访问 DAO，仍符合当前仓库的数据边界约定。
 
-## How To Add A New Real Endpoint Here
+## How Detail Resume Context Is Wired
 
-1. 先确认目标 feature 是否已有 `BizPort`。
-2. 如果已有 `BizPort`，优先把真实请求收口到 repository-backed 实现，不把网络细节回塞进 ViewModel。
-3. 新请求优先复用 `CmsApiService` 的逻辑 endpoint 模式；若必须新增接口，也保持 `Repository -> mapper -> domain -> BizPort` 这条路径不变。
-4. 失败处理延续当前仓库规则：
-   - `response.code == 1` 视为成功
-   - `detail` 模式额外要求 `response.list` 非空
-   - 其他情况转 `Result.failure(Exception(msg ?: 默认文案))`
+1. `DetailViewModel.loadVideo(videoId)` 先调用 `DetailBizPort.loadVideo(videoId)` 获取详情。
+2. 同一加载链路中再调用 `DetailBizPort.loadLatestPlayback(videoId)` 获取该视频最近播放记录。
+3. `RepositoryDetailBizPort` 将“最近播放记录”继续下沉给 `ICmsRepository.getLatestPlaybackForVideo(videoId)`。
+4. `CmsRepositoryImpl` 通过 `PlaybackHistoryDao.getLatestHistoryForVideo(videoId)` 读取本地最近记录，并映射为 `WatchHistoryItem`。
+5. `DetailViewModel` 根据已确认业务规则做恢复：
+   - 记录有效 -> 恢复对应 source/episode
+   - 已看完 -> 若有下一集则跳下一集
+   - source/episode 失效 -> 静默回退到首个可用源的首集
+6. 恢复结果最终只落在 `UiState`，不使用额外提示 effect。
 
 ## Verified Facts
 
-- 分类读取路径：`HomeViewModel -> HomeBizPort -> RepositoryHomeBizPort -> ICmsRepository.getCategoryList() -> CmsRepositoryImpl -> CmsApiService.categoryList()`
-- 详情读取路径：`DetailViewModel -> DetailBizPort -> RepositoryDetailBizPort -> ICmsRepository.getVideoDetail(videoId) -> CmsRepositoryImpl -> CmsApiService.vodDetail(ids=...)`
-- 缓存只用于分类：`CategoryDao`
-- DTO 到 domain 的主要映射是 `toData / toDomain`
-- 依赖注入由 `ICinemaModule` 提供 repository，由 feature 级 bindings module 绑定 `BizPort`
+- DAO 新增：`PlaybackHistoryDao.getLatestHistoryForVideo(videoId)`
+- Repository 新增：`ICmsRepository.getLatestPlaybackForVideo(videoId)`
+- DetailBizPort 新增：`loadLatestPlayback(videoId)`
+- DetailViewModel 已在加载详情时消费最近播放上下文，并计算 `preferredSource / preferredEpisode / preferredRange`
+- 编译验证通过：`:app:compileDebugKotlin`
 
-## Detail Runtime Evidence
+## Remaining Validation
 
-- 构建安装通过：`:app:compileDebugKotlin`, `:app:installDebug`
-- 主页点入详情后，真实日志出现：
-  - `GET https://caiji.dyttzyapi.com/api.php/provide/vod/?ac=detail&ids=12404&pg=1&limit=5`
-- 详情页已渲染出：
-  - 标题
-  - 海报
-  - 播放源切换
-  - 分段选集
-  - 剧集标签
-  - 简介信息
+- 仍需设备侧确认三条运行时路径：
+  - 正常恢复最近 source/episode
+  - 已看完后跳下一集
+  - source/episode 失效后的静默回退

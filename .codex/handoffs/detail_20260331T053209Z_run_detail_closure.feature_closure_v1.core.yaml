@@ -9,6 +9,8 @@ feature_closure_v1:
     entry_composable: "DetailContent"
     write_scope:
       - "app/src/main/java/com/icinema/pages/detail/**"
+      - "app/src/main/java/com/icinema/data/repository/**"
+      - "app/src/main/java/com/icinema/data/local/dao/PlaybackHistoryDao.kt"
 
   ui_anchor:
     ui_status: "verified"
@@ -50,10 +52,17 @@ feature_closure_v1:
         type: "Int"
       - name: "selectedRange"
         type: "Int"
+      - name: "hasPlaybackHistory"
+        type: "Boolean"
+      - name: "restoredByFallback"
+        type: "Boolean"
 
   mvi_anchor:
     business_status: "verified"
     mvi_status: "verified"
+    business_alignment_ref:
+      path: "/Users/Ngai/Github/iCinema/.codex/handoffs/detail_20260411T053841Z_phaseb_resume_alignment.business_alignment_v1.yaml"
+      status: "confirmed"
     contract:
       ui_state: "DetailContract.UiState"
       ui_intent: "DetailContract.UiIntent"
@@ -65,8 +74,14 @@ feature_closure_v1:
       methods:
         - name: "loadVideo"
           signature: "suspend fun loadVideo(videoId: Long): Result<Video>"
+        - name: "loadLatestPlayback"
+          signature: "suspend fun loadLatestPlayback(videoId: Long): Result<WatchHistoryItem?>"
+        - name: "isFavorite"
+          signature: "suspend fun isFavorite(videoId: Long): Result<Boolean>"
+        - name: "toggleFavorite"
+          signature: "suspend fun toggleFavorite(video: Video): Result<Boolean>"
     fake_boundary:
-      status: "fully_replaced"
+      status: "present"
 
   data_anchor:
     data_status: "verified"
@@ -75,16 +90,29 @@ feature_closure_v1:
       - name: "ICmsRepository.getVideoDetail(videoId)"
         mapped_biz_port_method: "loadVideo"
         status: "real"
+      - name: "ICmsRepository.getLatestPlaybackForVideo(videoId)"
+        mapped_biz_port_method: "loadLatestPlayback"
+        status: "real"
+      - name: "PlaybackHistoryDao.getLatestHistoryForVideo(videoId)"
+        mapped_biz_port_method: "loadLatestPlayback"
+        status: "real"
+      - name: "ICmsRepository.isFavorite(videoId)"
+        mapped_biz_port_method: "isFavorite"
+        status: "real"
+      - name: "ICmsRepository.toggleFavorite(video)"
+        mapped_biz_port_method: "toggleFavorite"
+        status: "real"
 
   verification:
     compile_status: "passed"
-    runtime_status: "passed"
+    runtime_status: "partial"
 
   ownership:
     last_updated_by_skill: "android-data-integration"
-    last_updated_at_utc: "2026-03-31T05:32:09Z"
+    last_updated_at_utc: "2026-04-11T05:46:16Z"
     next_recommended_skill: "android-data-integration"
-    next_action: "none"
+    next_action: "run device validation to confirm restored source/range/episode selection matches detail UI expectations for completed and fallback histories"
 
   open_items:
-    - "none"
+    - "Runtime verification is still partial; device validation is needed for completed-episode jump and invalid-history fallback paths"
+    - "Detail page remains silent on restore by design; if product later wants visible hint, that requires a separate MVI alignment change"

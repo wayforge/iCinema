@@ -2,6 +2,7 @@ package com.icinema.pages.player
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -41,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -65,6 +69,14 @@ internal fun PlayerSurfaceSection(
         modifier = modifier
             .background(Color.Black)
             .fillMaxSize()
+            .pointerInput(state.gestureSeekEnabled) {
+                detectHorizontalDragGestures { _, dragAmount ->
+                    if (state.gestureSeekEnabled && !state.controlsLocked) {
+                        val delta = (dragAmount * 180L).toLong()
+                        onIntent(PlayerContract.UiIntent.GestureSeek(delta))
+                    }
+                }
+            }
             .clickable { onIntent(PlayerContract.UiIntent.ToggleControls) }
     ) {
         PlayerRuntimeSurface(
@@ -228,6 +240,10 @@ private fun PlayerControlsOverlay(
     ) {
         PlayerTopBar(
             title = state.video?.name.orEmpty(),
+            isLocked = state.controlsLocked,
+            playbackSpeed = state.playbackSpeed,
+            autoPlayNextEnabled = state.autoPlayNextEnabled,
+            gestureSeekEnabled = state.gestureSeekEnabled,
             onBackClick = onBackClick,
             onIntent = onIntent
         )
@@ -236,6 +252,7 @@ private fun PlayerControlsOverlay(
 
         PlayerTransportControls(
             isPlaying = state.isPlaying,
+            isLocked = state.controlsLocked,
             onIntent = onIntent
         )
 
@@ -254,33 +271,72 @@ private fun PlayerControlsOverlay(
 @Composable
 private fun PlayerTopBar(
     title: String,
+    isLocked: Boolean,
+    playbackSpeed: Float,
+    autoPlayNextEnabled: Boolean,
+    gestureSeekEnabled: Boolean,
     onBackClick: () -> Unit,
     onIntent: (PlayerContract.UiIntent) -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        IconButton(onClick = onBackClick) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
-        }
-        Text(
-            text = title,
-            color = Color.White,
-            modifier = Modifier.weight(1f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        IconButton(
-            onClick = {
-                onIntent(PlayerContract.UiIntent.OpenSheet(PlayerContract.SheetMode.Details))
-            }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Filled.Info,
-                contentDescription = "详情",
-                tint = Color.White
+            IconButton(onClick = onBackClick) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+            }
+            Text(
+                text = title,
+                color = Color.White,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
+            IconButton(onClick = { onIntent(PlayerContract.UiIntent.ToggleControlsLock) }) {
+                Icon(
+                    imageVector = if (isLocked) Icons.Filled.Lock else Icons.Filled.LockOpen,
+                    contentDescription = "锁定",
+                    tint = Color.White
+                )
+            }
+            IconButton(
+                onClick = {
+                    onIntent(PlayerContract.UiIntent.OpenSheet(PlayerContract.SheetMode.Details))
+                }
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Info,
+                    contentDescription = "详情",
+                    tint = Color.White
+                )
+            }
+        }
+
+        if (!isLocked) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                TextButton(onClick = { onIntent(PlayerContract.UiIntent.SetPlaybackSpeed(1.0f)) }) {
+                    Text(if (playbackSpeed == 1.0f) "1.0x*" else "1.0x", color = Color.White)
+                }
+                TextButton(onClick = { onIntent(PlayerContract.UiIntent.SetPlaybackSpeed(1.25f)) }) {
+                    Text(if (playbackSpeed == 1.25f) "1.25x*" else "1.25x", color = Color.White)
+                }
+                TextButton(onClick = { onIntent(PlayerContract.UiIntent.SetPlaybackSpeed(1.5f)) }) {
+                    Text(if (playbackSpeed == 1.5f) "1.5x*" else "1.5x", color = Color.White)
+                }
+                TextButton(onClick = { onIntent(PlayerContract.UiIntent.SetPlaybackSpeed(2.0f)) }) {
+                    Text(if (playbackSpeed == 2.0f) "2.0x*" else "2.0x", color = Color.White)
+                }
+                TextButton(onClick = { onIntent(PlayerContract.UiIntent.ToggleAutoPlayNext) }) {
+                    Text(if (autoPlayNextEnabled) "连播开" else "连播关", color = Color.White)
+                }
+                TextButton(onClick = { onIntent(PlayerContract.UiIntent.ToggleGestureSeek) }) {
+                    Text(if (gestureSeekEnabled) "手势开" else "手势关", color = Color.White)
+                }
+            }
         }
     }
 }
@@ -288,6 +344,7 @@ private fun PlayerTopBar(
 @Composable
 private fun PlayerTransportControls(
     isPlaying: Boolean,
+    isLocked: Boolean,
     onIntent: (PlayerContract.UiIntent) -> Unit
 ) {
     Row(
@@ -295,23 +352,32 @@ private fun PlayerTransportControls(
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = { onIntent(PlayerContract.UiIntent.PlayPrevious) }) {
-            Icon(Icons.Filled.SkipPrevious, contentDescription = null, tint = Color.White)
-        }
-        IconButton(onClick = { onIntent(PlayerContract.UiIntent.SeekBackward) }) {
-            Icon(Icons.Filled.Replay10, contentDescription = null, tint = Color.White)
-        }
-        FilledIconButton(onClick = { onIntent(PlayerContract.UiIntent.TogglePlayPause) }) {
-            Icon(
-                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                contentDescription = null
-            )
-        }
-        IconButton(onClick = { onIntent(PlayerContract.UiIntent.SeekForward) }) {
-            Icon(Icons.Filled.Forward10, contentDescription = null, tint = Color.White)
-        }
-        IconButton(onClick = { onIntent(PlayerContract.UiIntent.PlayNext) }) {
-            Icon(Icons.Filled.SkipNext, contentDescription = null, tint = Color.White)
+        if (!isLocked) {
+            IconButton(onClick = { onIntent(PlayerContract.UiIntent.PlayPrevious) }) {
+                Icon(Icons.Filled.SkipPrevious, contentDescription = null, tint = Color.White)
+            }
+            IconButton(onClick = { onIntent(PlayerContract.UiIntent.SeekBackward) }) {
+                Icon(Icons.Filled.Replay10, contentDescription = null, tint = Color.White)
+            }
+            FilledIconButton(onClick = { onIntent(PlayerContract.UiIntent.TogglePlayPause) }) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = null
+                )
+            }
+            IconButton(onClick = { onIntent(PlayerContract.UiIntent.SeekForward) }) {
+                Icon(Icons.Filled.Forward10, contentDescription = null, tint = Color.White)
+            }
+            IconButton(onClick = { onIntent(PlayerContract.UiIntent.PlayNext) }) {
+                Icon(Icons.Filled.SkipNext, contentDescription = null, tint = Color.White)
+            }
+        } else {
+            FilledIconButton(onClick = { onIntent(PlayerContract.UiIntent.TogglePlayPause) }) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = null
+                )
+            }
         }
     }
 }

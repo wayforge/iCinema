@@ -4,6 +4,7 @@ import com.icinema.R
 import com.icinema.data.repository.ICmsRepository
 import com.icinema.domain.model.Category
 import com.icinema.domain.model.Video
+import com.icinema.domain.model.WatchHistoryItem
 import javax.inject.Inject
 import kotlinx.coroutines.delay
 
@@ -11,6 +12,12 @@ interface HomeBizPort {
     suspend fun loadCategories(): Result<List<Category>>
     suspend fun loadVideos(page: Int, categoryId: Int?, keyword: String?): Result<List<Video>>
     suspend fun searchVideos(keyword: String, page: Int): Result<List<Video>>
+    suspend fun loadContinueWatching(limit: Int = 10): Result<List<WatchHistoryItem>>
+    suspend fun loadSearchHistory(limit: Int = 20): Result<List<String>>
+    suspend fun loadHotKeywords(): Result<List<String>>
+    suspend fun saveSearchKeyword(keyword: String): Result<Unit>
+    suspend fun clearSearchHistory(): Result<Unit>
+    suspend fun loadRecommendations(limit: Int = 10): Result<List<Video>>
 }
 
 class RepositoryHomeBizPort @Inject constructor(
@@ -31,6 +38,30 @@ class RepositoryHomeBizPort @Inject constructor(
     override suspend fun searchVideos(keyword: String, page: Int): Result<List<Video>> {
         return repository.searchVideo(keyword = keyword, page = page)
     }
+
+    override suspend fun loadContinueWatching(limit: Int): Result<List<WatchHistoryItem>> {
+        return repository.getContinueWatching(limit)
+    }
+
+    override suspend fun loadSearchHistory(limit: Int): Result<List<String>> {
+        return repository.getSearchHistory(limit)
+    }
+
+    override suspend fun loadHotKeywords(): Result<List<String>> {
+        return repository.getHotKeywords()
+    }
+
+    override suspend fun saveSearchKeyword(keyword: String): Result<Unit> {
+        return repository.saveSearchKeyword(keyword)
+    }
+
+    override suspend fun clearSearchHistory(): Result<Unit> {
+        return repository.clearSearchHistory()
+    }
+
+    override suspend fun loadRecommendations(limit: Int): Result<List<Video>> {
+        return repository.getRecommendedVideos(limit)
+    }
 }
 
 class FakeHomeBizPort(
@@ -49,6 +80,37 @@ class FakeHomeBizPort(
     override suspend fun searchVideos(keyword: String, page: Int): Result<List<Video>> {
         delay(delayMs)
         return sampleResult(page = page, categoryId = null, keyword = keyword)
+    }
+
+    override suspend fun loadContinueWatching(limit: Int): Result<List<WatchHistoryItem>> {
+        delay(delayMs)
+        return Result.success(emptyList())
+    }
+
+    override suspend fun loadSearchHistory(limit: Int): Result<List<String>> {
+        delay(delayMs)
+        return Result.success(listOf("复仇者", "三体", "盗梦空间"))
+    }
+
+    override suspend fun loadHotKeywords(): Result<List<String>> {
+        delay(delayMs)
+        return Result.success(listOf("动作", "悬疑", "科幻"))
+    }
+
+    override suspend fun saveSearchKeyword(keyword: String): Result<Unit> {
+        delay(delayMs)
+        return Result.success(Unit)
+    }
+
+    override suspend fun clearSearchHistory(): Result<Unit> {
+        delay(delayMs)
+        return Result.success(Unit)
+    }
+
+    override suspend fun loadRecommendations(limit: Int): Result<List<Video>> {
+        delay(delayMs)
+        return sampleResult(page = 1, categoryId = null, keyword = null)
+            .map { it.take(limit) }
     }
 
     private fun sampleResult(page: Int, categoryId: Int?, keyword: String?): Result<List<Video>> {

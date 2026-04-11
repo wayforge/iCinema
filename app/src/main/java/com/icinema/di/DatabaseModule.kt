@@ -29,4 +29,13 @@ object DatabaseModule {
 
     @Provides
     fun providePlaybackHistoryDao(database: AppDatabase) = database.playbackHistoryDao()
+
+    @Provides
+    fun provideFavoriteDao(database: AppDatabase) = database.favoriteDao()
+
+    @Provides
+    fun provideSearchHistoryDao(database: AppDatabase) = database.searchHistoryDao()
+
+    @Provides
+    fun provideDownloadTaskDao(database: AppDatabase) = database.downloadTaskDao()
 }

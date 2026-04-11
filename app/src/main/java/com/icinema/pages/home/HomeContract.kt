@@ -2,8 +2,14 @@ package com.icinema.pages.home
 
 import com.icinema.domain.model.Category
 import com.icinema.domain.model.Video
+import com.icinema.domain.model.WatchHistoryItem
 
 object HomeContract {
+    enum class SortMode {
+        Latest,
+        Name
+    }
+
     data class UiState(
         val isLoading: Boolean = false,
         val isRefreshing: Boolean = false,
@@ -18,7 +24,13 @@ object HomeContract {
         val categories: List<Category> = emptyList(),
         val visibleCategories: List<Category> = emptyList(),
         val selectedCategoryId: Int? = null,
-        val selectedCategoryIds: Set<Int> = emptySet()
+        val selectedCategoryIds: Set<Int> = emptySet(),
+        val continueWatching: List<WatchHistoryItem> = emptyList(),
+        val historyCount: Int = 0,
+        val searchHistory: List<String> = emptyList(),
+        val hotKeywords: List<String> = emptyList(),
+        val recommendedVideos: List<Video> = emptyList(),
+        val sortMode: SortMode = SortMode.Latest
     )
 
     sealed interface UiIntent {
@@ -34,11 +46,29 @@ object HomeContract {
         data class SelectCategory(val categoryId: Int?) : UiIntent
         data class Search(val keyword: String) : UiIntent
         data object ClearSearch : UiIntent
+        data object LoadContinueWatching : UiIntent
+        data object LoadSearchSuggestions : UiIntent
+        data class QuickSearch(val keyword: String) : UiIntent
+        data object ClearSearchHistory : UiIntent
+        data object LoadRecommendations : UiIntent
+        data class ChangeSort(val sortMode: SortMode) : UiIntent
+        data class OpenVideoDetail(val videoId: Long) : UiIntent
+        data class OpenContinueWatching(
+            val videoId: Long,
+            val sourceKey: String,
+            val episodeIndex: Int
+        ) : UiIntent
     }
 
     sealed interface UiEffect {
         data class ShowError(val message: String) : UiEffect
         data class ShowToast(val message: String) : UiEffect
+        data class OpenDetail(val videoId: Long) : UiEffect
+        data class OpenPlayer(
+            val videoId: Long,
+            val sourceKey: String,
+            val episodeIndex: Int
+        ) : UiEffect
     }
 
     sealed interface Mutation {
@@ -66,5 +96,20 @@ object HomeContract {
             val visibleCategories: List<Category>,
             val selectedCategoryIds: Set<Int>
         ) : Mutation
+
+        data class ContinueWatchingLoaded(
+            val items: List<WatchHistoryItem>
+        ) : Mutation
+
+        data class SearchSuggestionsLoaded(
+            val history: List<String>,
+            val hotKeywords: List<String>
+        ) : Mutation
+
+        data class RecommendationsLoaded(
+            val videos: List<Video>
+        ) : Mutation
+
+        data class SortChanged(val sortMode: SortMode) : Mutation
     }
 }

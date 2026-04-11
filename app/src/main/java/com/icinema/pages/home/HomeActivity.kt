@@ -1,5 +1,6 @@
 package com.icinema.pages.home
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -14,6 +15,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.icinema.pages.category.CategoryActivity
+import com.icinema.pages.detail.DetailActivity
+import com.icinema.pages.favorite.FavoriteActivity
+import com.icinema.pages.history.HistoryActivity
 import com.icinema.pages.player.PlayerActivity
 import com.icinema.ui.theme.iCinemaTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -46,19 +50,77 @@ class HomeActivity : ComponentActivity() {
                             homeViewModel.reloadCategories()
                         }
                     }
+                    val detailLauncher = rememberLauncherForActivityResult(
+                        contract = ActivityResultContracts.StartActivityForResult()
+                    ) { result ->
+                        val shouldRefresh = result.data?.getBooleanExtra(PlayerActivity.EXTRA_HOME_REFRESH, false) == true
+                        if (result.resultCode == Activity.RESULT_OK && shouldRefresh) {
+                            homeViewModel.refreshPlaybackDrivenSections()
+                        }
+                    }
+                    val playerLauncher = rememberLauncherForActivityResult(
+                        contract = ActivityResultContracts.StartActivityForResult()
+                    ) { result ->
+                        val shouldRefresh = result.data?.getBooleanExtra(PlayerActivity.EXTRA_HOME_REFRESH, false) == true
+                        if (result.resultCode == Activity.RESULT_OK && shouldRefresh) {
+                            homeViewModel.refreshPlaybackDrivenSections()
+                        }
+                    }
+                    val snackbarHostState = androidx.compose.runtime.remember { androidx.compose.material3.SnackbarHostState() }
+
+                    androidx.compose.runtime.LaunchedEffect(homeViewModel) {
+                        homeViewModel.uiEffect.collect { effect ->
+                            when (effect) {
+                                is HomeContract.UiEffect.ShowError -> {
+                                    snackbarHostState.showSnackbar(effect.message)
+                                }
+                                is HomeContract.UiEffect.ShowToast -> {
+                                    snackbarHostState.showSnackbar(effect.message)
+                                }
+                                is HomeContract.UiEffect.OpenDetail -> {
+                                    detailLauncher.launch(
+                                        Intent(this@HomeActivity, DetailActivity::class.java).apply {
+                                            putExtra(DetailActivity.EXTRA_VIDEO_ID, effect.videoId)
+                                        }
+                                    )
+                                }
+                                is HomeContract.UiEffect.OpenPlayer -> {
+                                    playerLauncher.launch(
+                                        PlayerActivity.createIntent(
+                                            context = this@HomeActivity,
+                                            videoId = effect.videoId,
+                                            sourceKey = effect.sourceKey,
+                                            episodeIndex = effect.episodeIndex
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
 
                     HomeScreen(
                         viewModel = homeViewModel,
+                        snackbarHostState = snackbarHostState,
                         onVideoClick = { videoId ->
-                            PlayerActivity.start(
-                                context = this@HomeActivity,
-                                videoId = videoId,
-                                sourceKey = null,
-                                episodeIndex = 0
+                            homeViewModel.handleIntent(HomeContract.UiIntent.OpenVideoDetail(videoId))
+                        },
+                        onContinueWatchingClick = { videoId, sourceKey, episodeIndex ->
+                            homeViewModel.handleIntent(
+                                HomeContract.UiIntent.OpenContinueWatching(
+                                    videoId = videoId,
+                                    sourceKey = sourceKey,
+                                    episodeIndex = episodeIndex
+                                )
                             )
                         },
                         onOpenCategoryEditor = {
                             categoryEditorLauncher.launch(CategoryActivity.start(this@HomeActivity))
+                        },
+                        onOpenHistory = {
+                            HistoryActivity.start(this@HomeActivity)
+                        },
+                        onOpenFavorite = {
+                            FavoriteActivity.start(this@HomeActivity)
                         }
                     )
                 }

@@ -17,9 +17,13 @@ data class PlaybackHistoryEntity(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
     val videoId: Long,
+    val videoName: String,
+    val videoPic: String,
     val sourceKey: String,
     val episodeIndex: Int,
+    val episodeTitle: String,
     val positionMs: Long,
     val durationMs: Long,
-    val updatedAt: Long
+    val updatedAt: Long,
+    val completed: Boolean = false
 )

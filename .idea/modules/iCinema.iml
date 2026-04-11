@@ -5,6 +5,9 @@
       <excludeFolder url="file://$MODULE_DIR$/.." />
       <excludeFolder url="file://$MODULE_DIR$/../../.kotlin" />
       <excludeFolder url="file://$MODULE_DIR$/../../gradle" />
+      <excludeFolder url="file://$MODULE_DIR$/../../.claude" />
+      <excludeFolder url="file://$MODULE_DIR$/../../.codex" />
+      <excludeFolder url="file://$MODULE_DIR$/../../.qwen" />
     </content>
   </component>
 </module>

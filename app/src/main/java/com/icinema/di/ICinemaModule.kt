@@ -14,6 +14,10 @@ import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
+import javax.inject.Named
+import android.content.Context
+import android.content.SharedPreferences
+import dagger.hilt.android.qualifiers.ApplicationContext
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -54,10 +58,39 @@ object ICinemaModule {
         return retrofit.create(CmsApiService::class.java)
     }
 
+    @Provides
+    @Singleton
+    @Named("player_prefs")
+    fun providePlayerPrefs(@ApplicationContext context: Context): SharedPreferences {
+        return context.getSharedPreferences("player_settings", Context.MODE_PRIVATE)
+    }
 
     @Provides
     @Singleton
-    fun provideCmsRepository(apiService: CmsApiService, categoryDao: com.icinema.data.local.dao.CategoryDao): ICmsRepository {
-        return CmsRepositoryImpl(apiService, categoryDao)
+    @Named("session_prefs")
+    fun provideSessionPrefs(@ApplicationContext context: Context): SharedPreferences {
+        return context.getSharedPreferences("user_session", Context.MODE_PRIVATE)
+    }
+
+    @Provides
+    @Singleton
+    fun provideCmsRepository(
+        apiService: CmsApiService,
+        categoryDao: com.icinema.data.local.dao.CategoryDao,
+        playbackHistoryDao: com.icinema.data.local.dao.PlaybackHistoryDao,
+        favoriteDao: com.icinema.data.local.dao.FavoriteDao,
+        searchHistoryDao: com.icinema.data.local.dao.SearchHistoryDao,
+        downloadTaskDao: com.icinema.data.local.dao.DownloadTaskDao,
+        @Named("session_prefs") sessionPrefs: SharedPreferences
+    ): ICmsRepository {
+        return CmsRepositoryImpl(
+            apiService,
+            categoryDao,
+            playbackHistoryDao,
+            favoriteDao,
+            searchHistoryDao,
+            downloadTaskDao,
+            sessionPrefs
+        )
     }
 }

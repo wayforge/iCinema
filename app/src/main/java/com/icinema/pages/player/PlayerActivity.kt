@@ -34,9 +34,23 @@ import dagger.hilt.android.AndroidEntryPoint
 class PlayerActivity : ComponentActivity() {
 
     companion object {
+        const val EXTRA_HOME_REFRESH = "extra_home_refresh"
         private const val EXTRA_VIDEO_ID = "extra_video_id"
         private const val EXTRA_SOURCE_KEY = "extra_source_key"
         private const val EXTRA_EPISODE_INDEX = "extra_episode_index"
+
+        fun createIntent(
+            context: Context,
+            videoId: Long,
+            sourceKey: String?,
+            episodeIndex: Int
+        ): Intent {
+            return Intent(context, PlayerActivity::class.java).apply {
+                putExtra(EXTRA_VIDEO_ID, videoId)
+                putExtra(EXTRA_SOURCE_KEY, sourceKey)
+                putExtra(EXTRA_EPISODE_INDEX, episodeIndex)
+            }
+        }
 
         fun start(
             context: Context,
@@ -44,12 +58,7 @@ class PlayerActivity : ComponentActivity() {
             sourceKey: String?,
             episodeIndex: Int
         ) {
-            val intent = Intent(context, PlayerActivity::class.java).apply {
-                putExtra(EXTRA_VIDEO_ID, videoId)
-                putExtra(EXTRA_SOURCE_KEY, sourceKey)
-                putExtra(EXTRA_EPISODE_INDEX, episodeIndex)
-            }
-            context.startActivity(intent)
+            context.startActivity(createIntent(context, videoId, sourceKey, episodeIndex))
         }
     }
 
@@ -74,13 +83,19 @@ class PlayerActivity : ComponentActivity() {
                         .background(MaterialTheme.colorScheme.background),
                     color = MaterialTheme.colorScheme.background
                 ) {
+                    val playerViewModel = viewModel<PlayerViewModel>()
                     PlayerScreen(
                         activity = this,
-                        viewModel = viewModel<PlayerViewModel>(),
+                        viewModel = playerViewModel,
                         videoId = videoId,
                         sourceKey = sourceKey,
                         episodeIndex = episodeIndex,
-                        onBackClick = { finish() }
+                        onBackClick = {
+                            if (playerViewModel.consumeHomeRefreshSignal()) {
+                                setResult(RESULT_OK, Intent().putExtra(EXTRA_HOME_REFRESH, true))
+                            }
+                            finish()
+                        }
                     )
                 }
             }
