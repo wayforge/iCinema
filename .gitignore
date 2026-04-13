@@ -4,5 +4,4 @@
 /.idea/
 /.kotlin/
 /.qwen/
-/gradle/
-/.gradle
+/local.properties
