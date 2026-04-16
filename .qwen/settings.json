@@ -4,7 +4,8 @@
       "Bash(./gradlew *)",
       "Bash(adb *)",
       "Bash(mkdir *)",
-      "Bash(cp *)"
+      "Bash(cp *)",
+      "Bash(find *)"
     ]
   },
   "$version": 3

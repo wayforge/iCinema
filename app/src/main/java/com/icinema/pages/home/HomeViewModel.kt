@@ -29,7 +29,7 @@ class HomeViewModel @Inject constructor(
 
     init {
         loadCategories()
-        handleIntent(HomeContract.UiIntent.LoadVideos())
+        handleIntent(HomeContract.UiIntent.LoadDiscoverVideos())
         handleIntent(HomeContract.UiIntent.LoadContinueWatching)
         handleIntent(HomeContract.UiIntent.LoadSearchSuggestions)
         handleIntent(HomeContract.UiIntent.LoadRecommendations)
@@ -57,6 +57,10 @@ class HomeViewModel @Inject constructor(
         handleIntent(HomeContract.UiIntent.LoadRecommendations)
     }
 
+    fun refreshMineTab() {
+        refreshPlaybackDrivenSections()
+    }
+
     private fun applyCategoryVisibility(categories: List<Category>) {
         val allCategoryIds = categories.map { it.id }.toSet()
         val persisted = if (categorySelectionStore.hasSavedSelection()) {
@@ -74,49 +78,79 @@ class HomeViewModel @Inject constructor(
         val currentSelected = _uiState.value.selectedCategoryId
         if (currentSelected != null && currentSelected !in resolved) {
             commit(HomeContract.Mutation.CategoryChanged(null))
-            handleIntent(HomeContract.UiIntent.LoadVideos(page = 1, categoryId = null))
+            handleIntent(HomeContract.UiIntent.LoadDiscoverVideos(page = 1, categoryId = null))
         }
     }
 
-    private fun loadVideos(
+    private fun loadDiscoverVideos(
         page: Int = 1,
         categoryId: Int? = null,
-        keyword: String? = null,
         isRefresh: Boolean = false
     ) {
         viewModelScope.launch {
-            val isSearchMode = !keyword.isNullOrBlank()
             commit(
-                HomeContract.Mutation.LoadStarted(
+                HomeContract.Mutation.DiscoverLoadStarted(
                     page = page,
                     isRefresh = isRefresh,
-                    isSearchMode = isSearchMode,
-                    keyword = keyword,
                     categoryId = categoryId
                 )
             )
 
-            val result = if (isSearchMode) {
-                bizPort.searchVideos(keyword = keyword.orEmpty(), page = page)
-            } else {
-                bizPort.loadVideos(page = page, categoryId = categoryId, keyword = keyword)
-            }
-
-            result
+            bizPort.loadVideos(page = page, categoryId = categoryId, keyword = null)
                 .onSuccess { videos ->
                     commit(
-                        HomeContract.Mutation.LoadSucceeded(
+                        HomeContract.Mutation.DiscoverLoadSucceeded(
                             videos = videos,
                             page = page,
-                            isSearchMode = isSearchMode,
-                            keyword = keyword,
                             categoryId = categoryId
                         )
                     )
                 }
                 .onFailure { exception ->
                     val message = exception.message ?: "Unknown error"
-                    commit(HomeContract.Mutation.LoadFailed(message))
+                    commit(HomeContract.Mutation.DiscoverLoadFailed(message))
+                    emitEffect(HomeContract.UiEffect.ShowError(message))
+                }
+        }
+    }
+
+    private fun searchVideos(
+        keyword: String,
+        page: Int = 1,
+        isRefresh: Boolean = false,
+        showRefreshIndicator: Boolean = false
+    ) {
+        viewModelScope.launch {
+            val normalized = keyword.trim()
+            commit(
+                HomeContract.Mutation.SearchLoadStarted(
+                    page = page,
+                    query = normalized,
+                    isRefresh = isRefresh,
+                    showRefreshIndicator = showRefreshIndicator
+                )
+            )
+
+            if (page == 1 && !isRefresh && !showRefreshIndicator) {
+                bizPort.saveSearchKeyword(normalized)
+            }
+
+            bizPort.searchVideos(normalized, page = page)
+                .onSuccess { videos ->
+                    commit(
+                        HomeContract.Mutation.SearchLoadSucceeded(
+                            videos = videos,
+                            page = page,
+                            query = normalized
+                        )
+                    )
+                    if (page == 1) {
+                        loadSearchSuggestions()
+                    }
+                }
+                .onFailure { exception ->
+                    val message = exception.message ?: "搜索失败"
+                    commit(HomeContract.Mutation.SearchLoadFailed(message))
                     emitEffect(HomeContract.UiEffect.ShowError(message))
                 }
         }
@@ -124,16 +158,19 @@ class HomeViewModel @Inject constructor(
 
     fun handleIntent(intent: HomeContract.UiIntent) {
         when (intent) {
-            is HomeContract.UiIntent.LoadVideos -> loadVideos(
+            is HomeContract.UiIntent.LoadDiscoverVideos -> loadDiscoverVideos(
                 page = intent.page,
                 categoryId = intent.categoryId,
-                keyword = intent.keyword,
                 isRefresh = intent.isRefresh
             )
-            HomeContract.UiIntent.LoadMore -> loadMore()
-            HomeContract.UiIntent.Refresh -> refresh()
+            HomeContract.UiIntent.LoadMoreDiscover -> loadMoreDiscover()
+            HomeContract.UiIntent.RefreshDiscover -> refreshDiscover()
+            HomeContract.UiIntent.RestoreDiscover -> restoreDiscover()
             is HomeContract.UiIntent.SelectCategory -> selectCategory(intent.categoryId)
             is HomeContract.UiIntent.Search -> search(intent.keyword)
+            HomeContract.UiIntent.LoadMoreSearch -> loadMoreSearch()
+            HomeContract.UiIntent.RefreshSearch -> refreshSearch()
+            HomeContract.UiIntent.RestoreSearch -> restoreSearch()
             HomeContract.UiIntent.ClearSearch -> clearSearch()
             HomeContract.UiIntent.LoadContinueWatching -> loadContinueWatching()
             HomeContract.UiIntent.LoadSearchSuggestions -> loadSearchSuggestions()
@@ -150,77 +187,95 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private fun loadMore() {
-        val currentState = _uiState.value
+    fun updateSearchInput(input: String) {
+        commit(HomeContract.Mutation.SearchInputChanged(input))
+    }
+
+    private fun loadMoreDiscover() {
+        val currentState = _uiState.value.discoverState
         if (!currentState.isLoading && !currentState.isLoadingMore && currentState.hasMorePages) {
             handleIntent(
-                HomeContract.UiIntent.LoadVideos(
+                HomeContract.UiIntent.LoadDiscoverVideos(
                     page = currentState.currentPage + 1,
-                    categoryId = currentState.selectedCategoryId,
-                    keyword = if (currentState.isSearchMode) currentState.searchKeyword else null
+                    categoryId = _uiState.value.selectedCategoryId
                 )
             )
         }
     }
 
-    private fun refresh() {
+    private fun refreshDiscover() {
         handleIntent(
-            HomeContract.UiIntent.LoadVideos(
+            HomeContract.UiIntent.LoadDiscoverVideos(
                 page = 1,
                 categoryId = _uiState.value.selectedCategoryId,
-                keyword = if (_uiState.value.isSearchMode) _uiState.value.searchKeyword else null,
                 isRefresh = true
             )
         )
     }
 
+    private fun restoreDiscover() {
+        val discoverState = _uiState.value.discoverState
+        if (discoverState.videos.isEmpty() && !discoverState.isLoading) {
+            handleIntent(
+                HomeContract.UiIntent.LoadDiscoverVideos(
+                    page = 1,
+                    categoryId = _uiState.value.selectedCategoryId
+                )
+            )
+        } else if (discoverState.videos.isNotEmpty() && !discoverState.isRefreshing && !discoverState.isLoadingMore) {
+            handleIntent(HomeContract.UiIntent.RefreshDiscover)
+        }
+    }
+
     private fun selectCategory(categoryId: Int?) {
         if (_uiState.value.selectedCategoryId != categoryId) {
             commit(HomeContract.Mutation.CategoryChanged(categoryId))
-            handleIntent(HomeContract.UiIntent.LoadVideos(page = 1, categoryId = categoryId))
+            handleIntent(HomeContract.UiIntent.LoadDiscoverVideos(page = 1, categoryId = categoryId))
         }
     }
 
     private fun search(keyword: String) {
-        viewModelScope.launch {
-            val normalized = keyword.trim()
-            commit(
-                HomeContract.Mutation.LoadStarted(
-                    page = 1,
-                    isRefresh = false,
-                    isSearchMode = true,
-                    keyword = normalized,
-                    categoryId = null
-                )
-            )
+        if (keyword.isBlank()) {
+            clearSearch()
+            return
+        }
+        searchVideos(keyword = keyword, page = 1)
+    }
 
-            bizPort.saveSearchKeyword(normalized)
+    private fun loadMoreSearch() {
+        val currentState = _uiState.value.searchState
+        val results = currentState.results
+        if (currentState.query.isBlank()) return
+        if (!results.isLoading && !results.isLoadingMore && !results.isRefreshing && results.hasMorePages) {
+            searchVideos(keyword = currentState.query, page = results.currentPage + 1)
+        }
+    }
 
-            bizPort.searchVideos(normalized, page = 1)
-                .onSuccess { videos ->
-                    commit(
-                        HomeContract.Mutation.LoadSucceeded(
-                            videos = videos,
-                            page = 1,
-                            isSearchMode = true,
-                            keyword = normalized,
-                            categoryId = null
-                        )
-                    )
-                    loadSearchSuggestions()
-                }
-                .onFailure { exception ->
-                    val message = exception.message ?: "搜索失败"
-                    commit(HomeContract.Mutation.LoadFailed(message))
-                    emitEffect(HomeContract.UiEffect.ShowError(message))
-                }
+    private fun refreshSearch(showRefreshIndicator: Boolean = false) {
+        val currentState = _uiState.value.searchState
+        if (currentState.query.isBlank()) return
+        searchVideos(
+            keyword = currentState.query,
+            page = 1,
+            isRefresh = true,
+            showRefreshIndicator = showRefreshIndicator
+        )
+    }
+
+    private fun restoreSearch() {
+        val currentState = _uiState.value.searchState
+        val results = currentState.results
+        if (currentState.query.isBlank()) return
+        if (results.videos.isEmpty() && !results.isLoading) {
+            searchVideos(keyword = currentState.query, page = 1)
+        } else if (results.videos.isNotEmpty() && !results.isRefreshing && !results.isLoadingMore) {
+            refreshSearch(showRefreshIndicator = true)
         }
     }
 
     private fun clearSearch() {
-        val categoryId = _uiState.value.selectedCategoryId
-        commit(HomeContract.Mutation.SearchModeChanged(isSearchMode = false, keyword = ""))
-        handleIntent(HomeContract.UiIntent.LoadVideos(page = 1, categoryId = categoryId))
+        commit(HomeContract.Mutation.SearchCleared)
+        loadSearchSuggestions()
     }
 
     private fun loadContinueWatching() {
