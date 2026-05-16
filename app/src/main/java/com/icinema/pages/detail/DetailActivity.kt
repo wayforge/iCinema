@@ -16,11 +16,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.icinema.pages.detail.ui.DetailContent
 import com.icinema.pages.player.PlayerActivity
 import com.icinema.ui.theme.iCinemaTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -78,7 +79,7 @@ private fun DetailScreen(
     onBackClick: () -> Unit,
     onRequestHomeRefresh: () -> Unit
 ) {
-    val state by viewModel.uiState.collectAsState()
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val shouldRefreshHomeOnExit = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     val playerLauncher = rememberLauncherForActivityResult(
