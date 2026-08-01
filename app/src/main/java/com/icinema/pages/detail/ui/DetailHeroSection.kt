@@ -16,14 +16,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -34,10 +30,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.icinema.R
 import com.icinema.domain.model.Video
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -47,9 +45,6 @@ internal fun DetailHeroSection(
     currentSource: String?,
     selectedEpisode: Pair<String, String>?,
     episodeCount: Int,
-    isFavorite: Boolean,
-    onBackClick: () -> Unit,
-    onFavoriteClick: () -> Unit,
     onPlayClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -61,15 +56,6 @@ internal fun DetailHeroSection(
         HeroBackdrop(
             imageUrl = video.picThumb ?: video.pic,
             title = video.name
-        )
-
-        DetailTopControls(
-            isFavorite = isFavorite,
-            onBackClick = onBackClick,
-            onFavoriteClick = onFavoriteClick,
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(horizontal = 12.dp, vertical = 8.dp)
         )
 
         Row(
@@ -138,7 +124,9 @@ private fun HeroBackdrop(
                 model = imageUrl,
                 contentDescription = null,
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+                contentScale = ContentScale.Crop,
+                placeholder = painterResource(R.drawable.tktk_house_cabinet_seat),
+                error = painterResource(R.drawable.tktk_house_cabinet_seat)
             )
         } else {
             Box(
@@ -178,52 +166,6 @@ private fun HeroBackdrop(
 }
 
 @Composable
-private fun DetailTopControls(
-    isFavorite: Boolean,
-    onBackClick: () -> Unit,
-    onFavoriteClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        HeroIconButton(
-            onClick = onBackClick
-        ) {
-            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-        }
-
-        HeroIconButton(
-            onClick = onFavoriteClick
-        ) {
-            Icon(
-                imageVector = if (isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                contentDescription = if (isFavorite) "取消收藏" else "收藏",
-                tint = if (isFavorite) MaterialTheme.colorScheme.primary else Color.White
-            )
-        }
-    }
-}
-
-@Composable
-private fun HeroIconButton(
-    onClick: () -> Unit,
-    content: @Composable () -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(22.dp),
-        color = Color.Black.copy(alpha = 0.42f),
-        contentColor = Color.White
-    ) {
-        IconButton(onClick = onClick) {
-            content()
-        }
-    }
-}
-
-@Composable
 private fun PosterImage(
     imageUrl: String,
     title: String,
@@ -233,7 +175,7 @@ private fun PosterImage(
         modifier = modifier
             .width(112.dp)
             .height(164.dp),
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(8.dp),
         tonalElevation = 6.dp
     ) {
         if (imageUrl.isNotBlank()) {
@@ -241,7 +183,9 @@ private fun PosterImage(
                 model = imageUrl,
                 contentDescription = title,
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+                contentScale = ContentScale.Crop,
+                placeholder = painterResource(R.drawable.tktk_house_cabinet_seat),
+                error = painterResource(R.drawable.tktk_house_cabinet_seat)
             )
         } else {
             Box(
@@ -269,7 +213,7 @@ private fun CurrentEpisodeStrip(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(Color.Black.copy(alpha = 0.38f))
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)

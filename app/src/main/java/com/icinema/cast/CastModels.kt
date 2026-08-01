@@ -30,6 +30,9 @@ data class CastState(
     val connectedDevice: CastDevice? = null,
     val isCasting: Boolean = false,
     val isPlaying: Boolean = false,
+    val currentMediaTitle: String = "",
+    val currentMediaSubtitle: String = "",
+    val currentMediaImageUrl: String = "",
     val currentPositionMs: Long = 0L,
     val durationMs: Long = 0L,
     val errorMessage: String? = null

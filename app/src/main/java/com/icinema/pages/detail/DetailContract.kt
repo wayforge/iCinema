@@ -1,5 +1,6 @@
 package com.icinema.pages.detail
 
+import com.icinema.cast.CastState
 import com.icinema.domain.model.Video
 
 object DetailContract {
@@ -13,7 +14,11 @@ object DetailContract {
         val selectedRange: Int = 0,
         val isFavorite: Boolean = false,
         val hasPlaybackHistory: Boolean = false,
-        val restoredByFallback: Boolean = false
+        val restoredByFallback: Boolean = false,
+        val castState: CastState = CastState(),
+        val isCastSheetVisible: Boolean = false,
+        val pendingCastSourceKey: String? = null,
+        val pendingCastEpisodeIndex: Int? = null
     )
 
     sealed interface UiIntent {
@@ -22,6 +27,16 @@ object DetailContract {
         data class SelectPlaySource(val source: String) : UiIntent
         data class SelectRange(val range: Int) : UiIntent
         data class SelectEpisode(val episode: Int) : UiIntent
+        data class OpenCastFlow(
+            val sourceKey: String,
+            val episodeIndex: Int
+        ) : UiIntent
+
+        data object DismissCastFlow : UiIntent
+        data object RefreshCastDevices : UiIntent
+        data class SelectCastDevice(val deviceId: String) : UiIntent
+        data object ToggleCastPlayPause : UiIntent
+        data object StopCasting : UiIntent
         data object ToggleFavorite : UiIntent
         data object ClearVideo : UiIntent
     }
@@ -51,6 +66,13 @@ object DetailContract {
         data class PlaySourceChanged(val source: String) : Mutation
         data class RangeChanged(val range: Int) : Mutation
         data class EpisodeChanged(val episode: Int) : Mutation
+        data class CastSheetChanged(
+            val visible: Boolean,
+            val sourceKey: String? = null,
+            val episodeIndex: Int? = null
+        ) : Mutation
+
+        data class CastStateChanged(val castState: CastState) : Mutation
         data class FavoriteChanged(val isFavorite: Boolean) : Mutation
         data object VideoCleared : Mutation
     }

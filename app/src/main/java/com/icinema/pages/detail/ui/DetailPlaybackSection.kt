@@ -2,22 +2,25 @@ package com.icinema.pages.detail.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.LiveTv
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -42,49 +45,46 @@ internal fun DetailPlaybackSection(
     onSelectPlaySource: (String) -> Unit,
     onSelectRange: (Int) -> Unit,
     onSelectEpisode: (Int) -> Unit,
+    onCastEpisode: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    ElevatedCard(
-        modifier = modifier,
-        shape = RoundedCornerShape(22.dp)
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(18.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp)
-        ) {
-            SectionTitle(
-                text = "播放",
-                subtitle = if (currentEpisodes.isEmpty()) "当前视频没有可用播放源" else "${currentEpisodes.size} 集可播放"
+        SectionTitle(
+            text = "播放",
+            subtitle = if (currentEpisodes.isEmpty()) "当前视频没有可用播放源" else "${currentEpisodes.size} 集可播放"
+        )
+
+        if (playGroups.isEmpty()) {
+            EmptyPlaybackMessage()
+        } else {
+            PlaySourceRow(
+                playGroups = playGroups,
+                currentSource = currentSource,
+                onSelectPlaySource = onSelectPlaySource
             )
 
-            if (playGroups.isEmpty()) {
-                EmptyPlaybackMessage()
-            } else {
-                PlaySourceRow(
-                    playGroups = playGroups,
-                    currentSource = currentSource,
-                    onSelectPlaySource = onSelectPlaySource
-                )
-
-                if (totalRanges > 1) {
-                    EpisodeRangeSelector(
-                        totalRanges = totalRanges,
-                        rangeSize = rangeSize,
-                        currentEpisodesCount = currentEpisodes.size,
-                        clampedRange = clampedRange,
-                        onSelectRange = onSelectRange
-                    )
-                }
-
-                EpisodeGrid(
-                    rangeEpisodes = rangeEpisodes,
-                    startIndex = startIndex,
-                    selectedEpisode = selectedEpisode,
-                    onSelectEpisode = onSelectEpisode
+            if (totalRanges > 1) {
+                EpisodeRangeSelector(
+                    totalRanges = totalRanges,
+                    rangeSize = rangeSize,
+                    currentEpisodesCount = currentEpisodes.size,
+                    clampedRange = clampedRange,
+                    onSelectRange = onSelectRange
                 )
             }
+
+            EpisodeGrid(
+                rangeEpisodes = rangeEpisodes,
+                startIndex = startIndex,
+                selectedEpisode = selectedEpisode,
+                onSelectEpisode = onSelectEpisode,
+                onCastEpisode = onCastEpisode
+            )
         }
     }
 }
@@ -92,7 +92,7 @@ internal fun DetailPlaybackSection(
 @Composable
 private fun EmptyPlaybackMessage() {
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
     ) {
         Row(
@@ -196,7 +196,8 @@ private fun EpisodeGrid(
     rangeEpisodes: List<Pair<String, String>>,
     startIndex: Int,
     selectedEpisode: Int,
-    onSelectEpisode: (Int) -> Unit
+    onSelectEpisode: (Int) -> Unit,
+    onCastEpisode: (Int) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         PlaybackSubHeader(
@@ -210,10 +211,81 @@ private fun EpisodeGrid(
         ) {
             rangeEpisodes.forEachIndexed { localIndex, episode ->
                 val actualIndex = startIndex + localIndex
-                EpisodeTag(
+                EpisodeActionTag(
                     label = episode.first.ifBlank { "第${actualIndex + 1}集" },
                     isSelected = actualIndex == selectedEpisode,
-                    onClick = { onSelectEpisode(actualIndex) }
+                    canCast = episode.second.contains("m3u8", ignoreCase = true),
+                    onPlayClick = { onSelectEpisode(actualIndex) },
+                    onCastClick = { onCastEpisode(actualIndex) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EpisodeActionTag(
+    label: String,
+    isSelected: Boolean,
+    canCast: Boolean,
+    onPlayClick: () -> Unit,
+    onCastClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.widthIn(min = 128.dp, max = 188.dp),
+        shape = RoundedCornerShape(8.dp),
+        color = if (isSelected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+        }
+    ) {
+        Row(
+            modifier = Modifier
+                .defaultMinSize(minHeight = 48.dp)
+                .padding(start = 8.dp, end = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Surface(
+                onClick = onPlayClick,
+                modifier = Modifier.weight(1f),
+                color = androidx.compose.ui.graphics.Color.Transparent,
+                contentColor = if (isSelected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
+            ) {
+                Row(
+                    modifier = Modifier
+                        .defaultMinSize(minHeight = 44.dp)
+                        .padding(horizontal = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.LiveTv,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelLarge,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                }
+            }
+            IconButton(
+                enabled = canCast,
+                onClick = onCastClick
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Cast,
+                    contentDescription = "投屏 $label",
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }

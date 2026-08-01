@@ -12,6 +12,7 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 import java.net.SocketTimeoutException
 import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,6 +26,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
+@Singleton
 class DlnaCastController @Inject constructor(
     @ApplicationContext private val context: Context,
     private val okHttpClient: OkHttpClient
@@ -86,6 +88,9 @@ class DlnaCastController @Inject constructor(
                     connectedDevice = castDevice,
                     isCasting = true,
                     isPlaying = true,
+                    currentMediaTitle = media.title,
+                    currentMediaSubtitle = media.subtitle,
+                    currentMediaImageUrl = media.imageUrl,
                     currentPositionMs = media.positionMs.coerceAtLeast(0L),
                     durationMs = media.durationMs.coerceAtLeast(0L),
                     errorMessage = null
@@ -157,6 +162,9 @@ class DlnaCastController @Inject constructor(
                     connectedDevice = null,
                     isCasting = false,
                     isPlaying = false,
+                    currentMediaTitle = "",
+                    currentMediaSubtitle = "",
+                    currentMediaImageUrl = "",
                     currentPositionMs = 0L,
                     durationMs = 0L,
                     errorMessage = positionResult.exceptionOrNull()?.message

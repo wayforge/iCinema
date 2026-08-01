@@ -65,6 +65,18 @@ class DetailReducer @Inject constructor() {
                 current.copy(selectedEpisode = mutation.episode)
             }
 
+            is DetailContract.Mutation.CastSheetChanged -> {
+                current.copy(
+                    isCastSheetVisible = mutation.visible,
+                    pendingCastSourceKey = mutation.sourceKey,
+                    pendingCastEpisodeIndex = mutation.episodeIndex
+                )
+            }
+
+            is DetailContract.Mutation.CastStateChanged -> {
+                current.copy(castState = mutation.castState)
+            }
+
             is DetailContract.Mutation.FavoriteChanged -> {
                 current.copy(isFavorite = mutation.isFavorite)
             }

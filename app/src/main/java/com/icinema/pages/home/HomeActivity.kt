@@ -9,11 +9,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.icinema.cast.ui.CastMiniControllerHost
 import com.icinema.pages.category.CategoryActivity
 import com.icinema.pages.detail.DetailActivity
 import com.icinema.pages.favorite.FavoriteActivity
@@ -98,31 +102,40 @@ class HomeActivity : ComponentActivity() {
                         }
                     }
 
-                    HomeScreen(
-                        viewModel = homeViewModel,
-                        snackbarHostState = snackbarHostState,
-                        onVideoClick = { videoId ->
-                            homeViewModel.handleIntent(HomeContract.UiIntent.OpenVideoDetail(videoId))
-                        },
-                        onContinueWatchingClick = { videoId, sourceKey, episodeIndex ->
-                            homeViewModel.handleIntent(
-                                HomeContract.UiIntent.OpenContinueWatching(
-                                    videoId = videoId,
-                                    sourceKey = sourceKey,
-                                    episodeIndex = episodeIndex
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        HomeScreen(
+                            viewModel = homeViewModel,
+                            snackbarHostState = snackbarHostState,
+                            onVideoClick = { videoId ->
+                                homeViewModel.handleIntent(HomeContract.UiIntent.OpenVideoDetail(videoId))
+                            },
+                            onContinueWatchingClick = { videoId, sourceKey, episodeIndex ->
+                                homeViewModel.handleIntent(
+                                    HomeContract.UiIntent.OpenContinueWatching(
+                                        videoId = videoId,
+                                        sourceKey = sourceKey,
+                                        episodeIndex = episodeIndex
+                                    )
                                 )
-                            )
-                        },
-                        onOpenCategoryEditor = {
-                            categoryEditorLauncher.launch(CategoryActivity.start(this@HomeActivity))
-                        },
-                        onOpenHistory = {
-                            HistoryActivity.start(this@HomeActivity)
-                        },
-                        onOpenFavorite = {
-                            FavoriteActivity.start(this@HomeActivity)
-                        }
-                    )
+                            },
+                            onOpenCategoryEditor = {
+                                categoryEditorLauncher.launch(CategoryActivity.start(this@HomeActivity))
+                            },
+                            onOpenHistory = {
+                                HistoryActivity.start(this@HomeActivity)
+                            },
+                            onOpenFavorite = {
+                                FavoriteActivity.start(this@HomeActivity)
+                            }
+                        )
+
+                        CastMiniControllerHost(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .align(Alignment.BottomCenter),
+                            bottomPadding = 84.dp
+                        )
+                    }
                 }
             }
         }

@@ -666,7 +666,6 @@ class PlayerViewModel @Inject constructor(
         stopCastProgressUpdates()
         castDiscoveryJob?.cancel()
         preloadCoordinator.release()
-        castController.release()
         player.removeListener(playerListener)
         player.release()
         super.onCleared()
