@@ -321,7 +321,9 @@ class DetailViewModel @Inject constructor(
             url = episode.url,
             title = buildCastTitle(video, episode),
             subtitle = source.key,
-            imageUrl = video.picThumb ?: video.pic
+            imageUrl = video.picThumb?.takeIf { it.isNotBlank() }
+                ?: video.pic.takeIf { it.isNotBlank() }
+                ?: ""
         )
     }
 

@@ -181,7 +181,7 @@ private fun DetailSuccessContent(
 
     LazyColumn(
         modifier = modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(20.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(bottom = 112.dp)
     ) {
         item(key = "hero") {
@@ -224,7 +224,7 @@ private fun DetailSuccessContent(
                         onIntent(DetailContract.UiIntent.OpenCastFlow(source, episode))
                     }
                 },
-                modifier = Modifier.padding(horizontal = 20.dp)
+                modifier = Modifier.padding(horizontal = 16.dp)
             )
         }
 
@@ -232,8 +232,7 @@ private fun DetailSuccessContent(
             DetailDescriptionSection(
                 video = video,
                 description = video.content,
-                onRetry = { onIntent(DetailContract.UiIntent.RetryLoad) },
-                modifier = Modifier.padding(horizontal = 20.dp)
+                modifier = Modifier.padding(horizontal = 16.dp)
             )
         }
     }

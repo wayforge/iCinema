@@ -52,7 +52,7 @@ internal fun DetailPlaybackSection(
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         SectionTitle(
             text = "播放",
@@ -122,13 +122,13 @@ private fun PlaySourceRow(
     currentSource: String?,
     onSelectPlaySource: (String) -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         PlaybackSubHeader(
             icon = Icons.Filled.LiveTv,
             title = "播放源"
         )
 
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             itemsIndexed(
                 items = playGroups,
                 key = { _, item -> item.first }
@@ -163,15 +163,15 @@ private fun EpisodeRangeSelector(
     clampedRange: Int,
     onSelectRange: (Int) -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         PlaybackSubHeader(
             icon = Icons.Filled.GridView,
             title = "分段"
         )
 
         FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             repeat(totalRanges) { rangeIndex ->
                 val start = rangeIndex * rangeSize + 1
@@ -199,15 +199,15 @@ private fun EpisodeGrid(
     onSelectEpisode: (Int) -> Unit,
     onCastEpisode: (Int) -> Unit
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         PlaybackSubHeader(
             icon = Icons.Filled.GridView,
             title = "选集"
         )
 
         FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             rangeEpisodes.forEachIndexed { localIndex, episode ->
                 val actualIndex = startIndex + localIndex
@@ -233,7 +233,7 @@ private fun EpisodeActionTag(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier.widthIn(min = 128.dp, max = 188.dp),
+        modifier = modifier.widthIn(min = 108.dp, max = 164.dp),
         shape = RoundedCornerShape(8.dp),
         color = if (isSelected) {
             MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
@@ -243,7 +243,7 @@ private fun EpisodeActionTag(
     ) {
         Row(
             modifier = Modifier
-                .defaultMinSize(minHeight = 48.dp)
+                .defaultMinSize(minHeight = 44.dp)
                 .padding(start = 8.dp, end = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -260,15 +260,15 @@ private fun EpisodeActionTag(
             ) {
                 Row(
                     modifier = Modifier
-                        .defaultMinSize(minHeight = 44.dp)
-                        .padding(horizontal = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        .defaultMinSize(minHeight = 40.dp)
+                        .padding(horizontal = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
                         imageVector = Icons.Filled.LiveTv,
                         contentDescription = null,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(15.dp)
                     )
                     Text(
                         text = label,
