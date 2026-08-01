@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -244,6 +246,7 @@ private fun PlayerControlsOverlay(
             playbackSpeed = state.playbackSpeed,
             autoPlayNextEnabled = state.autoPlayNextEnabled,
             gestureSeekEnabled = state.gestureSeekEnabled,
+            isCasting = state.castState.isCasting,
             onBackClick = onBackClick,
             onIntent = onIntent
         )
@@ -275,6 +278,7 @@ private fun PlayerTopBar(
     playbackSpeed: Float,
     autoPlayNextEnabled: Boolean,
     gestureSeekEnabled: Boolean,
+    isCasting: Boolean,
     onBackClick: () -> Unit,
     onIntent: (PlayerContract.UiIntent) -> Unit
 ) {
@@ -293,6 +297,13 @@ private fun PlayerTopBar(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+            IconButton(onClick = { onIntent(PlayerContract.UiIntent.OpenCastFlow) }) {
+                Icon(
+                    imageVector = if (isCasting) Icons.Filled.CastConnected else Icons.Filled.Cast,
+                    contentDescription = "投屏",
+                    tint = Color.White
+                )
+            }
             IconButton(onClick = { onIntent(PlayerContract.UiIntent.ToggleControlsLock) }) {
                 Icon(
                     imageVector = if (isLocked) Icons.Filled.Lock else Icons.Filled.LockOpen,

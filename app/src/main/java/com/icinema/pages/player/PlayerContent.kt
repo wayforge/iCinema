@@ -39,7 +39,10 @@ fun PlayerContent(
             onIntent(PlayerContract.UiIntent.SelectEpisode(episodeIndex))
         },
         onOpenSources = { onIntent(PlayerContract.UiIntent.OpenSheet(PlayerContract.SheetMode.Sources)) },
-        onOpenEpisodes = { onIntent(PlayerContract.UiIntent.OpenSheet(PlayerContract.SheetMode.Episodes)) }
+        onOpenEpisodes = { onIntent(PlayerContract.UiIntent.OpenSheet(PlayerContract.SheetMode.Episodes)) },
+        onRefreshCastDevices = { onIntent(PlayerContract.UiIntent.RefreshCastDevices) },
+        onSelectCastDevice = { deviceId -> onIntent(PlayerContract.UiIntent.SelectCastDevice(deviceId)) },
+        onStopCasting = { onIntent(PlayerContract.UiIntent.StopCasting) }
     )
 
     AutoDismissPlayerControls(state = state, onIntent = onIntent)

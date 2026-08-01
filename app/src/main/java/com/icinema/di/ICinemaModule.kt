@@ -33,15 +33,20 @@ object ICinemaModule {
 
     @Provides
     @Singleton
-    fun provideRetrofit(gson: Gson): Retrofit {
+    fun provideRetrofit(
+        gson: Gson,
+        okHttpClient: OkHttpClient
+    ): Retrofit {
         return Retrofit.Builder()
             .baseUrl(BASE_URL)
-            .client(createOkHttpClient())
+            .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create(gson))
             .build()
     }
 
-    private fun createOkHttpClient(): OkHttpClient {
+    @Provides
+    @Singleton
+    fun provideOkHttpClient(): OkHttpClient {
         return OkHttpClient.Builder()
             .addInterceptor(HttpLoggingInterceptor().apply {
                 level = HttpLoggingInterceptor.Level.BODY

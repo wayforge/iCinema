@@ -3,6 +3,7 @@ package com.icinema.pages.player
 import com.icinema.domain.model.PlaySource
 import com.icinema.domain.model.PlayableEpisode
 import com.icinema.domain.model.Video
+import com.icinema.cast.CastState
 
 private const val DEFAULT_PLAYBACK_SPEED = 1.0f
 
@@ -10,7 +11,8 @@ object PlayerContract {
     enum class SheetMode {
         Sources,
         Episodes,
-        Details
+        Details,
+        CastDevices
     }
 
     data class UiState(
@@ -36,7 +38,8 @@ object PlayerContract {
         val playbackSpeed: Float = DEFAULT_PLAYBACK_SPEED,
         val autoPlayNextEnabled: Boolean = true,
         val controlsLocked: Boolean = false,
-        val gestureSeekEnabled: Boolean = true
+        val gestureSeekEnabled: Boolean = true,
+        val castState: CastState = CastState()
     )
 
     sealed interface UiIntent {
@@ -67,6 +70,10 @@ object PlayerContract {
         data object ToggleControlsLock : UiIntent
         data object ToggleGestureSeek : UiIntent
         data class GestureSeek(val deltaMs: Long) : UiIntent
+        data object OpenCastFlow : UiIntent
+        data object RefreshCastDevices : UiIntent
+        data class SelectCastDevice(val deviceId: String) : UiIntent
+        data object StopCasting : UiIntent
         data object OnLifecycleStart : UiIntent
         data object OnLifecycleStop : UiIntent
     }
@@ -131,5 +138,6 @@ object PlayerContract {
         data class AutoPlayNextChanged(val enabled: Boolean) : Mutation
         data class ControlsLockedChanged(val locked: Boolean) : Mutation
         data class GestureSeekChanged(val enabled: Boolean) : Mutation
+        data class CastStateChanged(val castState: CastState) : Mutation
     }
 }

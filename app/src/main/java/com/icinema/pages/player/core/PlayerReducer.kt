@@ -137,6 +137,25 @@ class PlayerReducer @Inject constructor() {
             is PlayerContract.Mutation.GestureSeekChanged -> {
                 current.copy(gestureSeekEnabled = mutation.enabled)
             }
+
+            is PlayerContract.Mutation.CastStateChanged -> {
+                val castState = mutation.castState
+                current.copy(
+                    castState = castState,
+                    isPlaying = if (castState.isCasting) castState.isPlaying else current.isPlaying,
+                    isBuffering = if (castState.isCasting) castState.isConnecting else current.isBuffering,
+                    currentPositionMs = if (castState.isCasting) {
+                        castState.currentPositionMs
+                    } else {
+                        current.currentPositionMs
+                    },
+                    durationMs = if (castState.isCasting && castState.durationMs > 0L) {
+                        castState.durationMs
+                    } else {
+                        current.durationMs
+                    }
+                )
+            }
         }
     }
 

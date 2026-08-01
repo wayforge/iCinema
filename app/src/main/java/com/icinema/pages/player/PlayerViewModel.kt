@@ -7,6 +7,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player as Media3Player
 import androidx.media3.exoplayer.ExoPlayer
+import com.icinema.cast.CastController
+import com.icinema.cast.CastMedia
 import com.icinema.pages.player.core.PlaybackMediaSourceFactory
 import com.icinema.pages.player.core.PlayerPreloadCoordinator
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -29,7 +31,8 @@ class PlayerViewModel @Inject constructor(
     private val bizPort: PlayerBizPort,
     private val reducer: PlayerReducer,
     private val playbackMediaSourceFactory: PlaybackMediaSourceFactory,
-    private val preloadCoordinator: PlayerPreloadCoordinator
+    private val preloadCoordinator: PlayerPreloadCoordinator,
+    private val castController: CastController
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PlayerContract.UiState())
@@ -43,6 +46,8 @@ class PlayerViewModel @Inject constructor(
         .build()
 
     private var progressJob: Job? = null
+    private var castDiscoveryJob: Job? = null
+    private var castProgressJob: Job? = null
     private var autoSwitchedForPlaybackKey: String? = null
     private var shouldRefreshHomeOnExit: Boolean = false
 
@@ -98,6 +103,11 @@ class PlayerViewModel @Inject constructor(
     init {
         player.addListener(playerListener)
         viewModelScope.launch {
+            castController.state.collect { castState ->
+                commit(PlayerContract.Mutation.CastStateChanged(castState))
+            }
+        }
+        viewModelScope.launch {
             val settings = bizPort.loadPlayerSettings()
             commit(
                 PlayerContract.Mutation.SettingsLoaded(
@@ -115,8 +125,12 @@ class PlayerViewModel @Inject constructor(
             is PlayerContract.UiIntent.Load -> load(intent.videoId, intent.sourceKey, intent.episodeIndex)
             PlayerContract.UiIntent.TogglePlayPause -> togglePlayPause()
             is PlayerContract.UiIntent.SeekTo -> {
-                player.seekTo(intent.positionMs)
-                updatePlaybackPosition()
+                if (_uiState.value.castState.isCasting) {
+                    seekCastTo(intent.positionMs)
+                } else {
+                    player.seekTo(intent.positionMs)
+                    updatePlaybackPosition()
+                }
             }
 
             PlayerContract.UiIntent.SeekForward -> seekBy(10_000L)
@@ -162,6 +176,10 @@ class PlayerViewModel @Inject constructor(
             PlayerContract.UiIntent.ToggleControlsLock -> toggleControlsLock()
             PlayerContract.UiIntent.ToggleGestureSeek -> toggleGestureSeek()
             is PlayerContract.UiIntent.GestureSeek -> seekBy(intent.deltaMs)
+            PlayerContract.UiIntent.OpenCastFlow -> openCastFlow()
+            PlayerContract.UiIntent.RefreshCastDevices -> startCastDiscovery()
+            is PlayerContract.UiIntent.SelectCastDevice -> castToDevice(intent.deviceId)
+            PlayerContract.UiIntent.StopCasting -> stopCasting()
             PlayerContract.UiIntent.OnLifecycleStart -> Unit
             PlayerContract.UiIntent.OnLifecycleStop -> onStop()
         }
@@ -244,7 +262,13 @@ class PlayerViewModel @Inject constructor(
                 )
             )
             commit(PlayerContract.Mutation.ResumePositionChanged(resumePosition))
-            prepareEpisode(source.key, nextEpisode, resumePosition)
+            prepareEpisode(
+                source.key,
+                nextEpisode,
+                resumePosition,
+                playWhenReady = !_uiState.value.castState.isCasting
+            )
+            castCurrentMediaIfNeeded()
         }
     }
 
@@ -267,7 +291,13 @@ class PlayerViewModel @Inject constructor(
                 )
             )
             commit(PlayerContract.Mutation.ResumePositionChanged(resumePosition))
-            prepareEpisode(source.key, episode, resumePosition)
+            prepareEpisode(
+                source.key,
+                episode,
+                resumePosition,
+                playWhenReady = !_uiState.value.castState.isCasting
+            )
+            castCurrentMediaIfNeeded()
         }
     }
 
@@ -297,6 +327,10 @@ class PlayerViewModel @Inject constructor(
             }
 
             state.currentEpisode != null && state.selectedSourceKey != null -> {
+                if (state.castState.isCasting) {
+                    castCurrentMediaIfNeeded()
+                    return
+                }
                 prepareEpisode(
                     sourceKey = state.selectedSourceKey,
                     episode = state.currentEpisode,
@@ -307,6 +341,18 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun togglePlayPause() {
+        if (_uiState.value.castState.isCasting) {
+            viewModelScope.launch {
+                val result = if (_uiState.value.castState.isPlaying) {
+                    castController.pause()
+                } else {
+                    castController.play()
+                }
+                result.onFailure { emitEffect(PlayerContract.UiEffect.ShowMessage(it.message ?: "投屏控制失败")) }
+            }
+            return
+        }
+
         if (player.isPlaying) {
             player.pause()
         } else {
@@ -315,6 +361,11 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun seekBy(deltaMs: Long) {
+        if (_uiState.value.castState.isCasting) {
+            seekCastTo(_uiState.value.currentPositionMs + deltaMs)
+            return
+        }
+
         val newPosition = (player.currentPosition + deltaMs).coerceIn(0L, player.duration.coerceAtLeast(0L))
         player.seekTo(newPosition)
         updatePlaybackPosition()
@@ -323,7 +374,8 @@ class PlayerViewModel @Inject constructor(
     private fun prepareEpisode(
         sourceKey: String,
         episode: com.icinema.domain.model.PlayableEpisode,
-        seekPositionMs: Long?
+        seekPositionMs: Long?,
+        playWhenReady: Boolean = true
     ) {
         if (!episode.isHls) {
             val message = "当前版本仅支持 HLS 播放源"
@@ -339,7 +391,7 @@ class PlayerViewModel @Inject constructor(
         if ((seekPositionMs ?: 0L) > 0L) {
             player.seekTo(seekPositionMs ?: 0L)
         }
-        player.playWhenReady = true
+        player.playWhenReady = playWhenReady
 
         schedulePreload(
             videoId = _uiState.value.videoId ?: return,
@@ -373,7 +425,9 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun onStop() {
-        player.pause()
+        if (!_uiState.value.castState.isCasting) {
+            player.pause()
+        }
         viewModelScope.launch {
             saveCurrentProgress(clearCompleted = false)
         }
@@ -430,6 +484,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun updatePlaybackPosition() {
+        if (_uiState.value.castState.isCasting) return
         commit(
             PlayerContract.Mutation.PositionChanged(
                 currentPositionMs = player.currentPosition.coerceAtLeast(0L),
@@ -455,6 +510,106 @@ class PlayerViewModel @Inject constructor(
         progressJob = null
     }
 
+    private fun openCastFlow() {
+        commit(PlayerContract.Mutation.SheetModeChanged(PlayerContract.SheetMode.CastDevices))
+        startCastDiscovery()
+    }
+
+    private fun startCastDiscovery() {
+        if (castDiscoveryJob?.isActive == true) return
+        castDiscoveryJob = viewModelScope.launch {
+            castController.startDiscovery()
+        }
+    }
+
+    private fun castToDevice(deviceId: String) {
+        viewModelScope.launch {
+            val media = buildCurrentCastMedia() ?: run {
+                emitEffect(PlayerContract.UiEffect.ShowMessage("当前视频不能投屏"))
+                return@launch
+            }
+            castController.cast(deviceId, media)
+                .onSuccess {
+                    player.pause()
+                    startCastProgressUpdates()
+                    emitEffect(PlayerContract.UiEffect.ShowMessage("已开始投屏"))
+                }
+                .onFailure { error ->
+                    emitEffect(PlayerContract.UiEffect.ShowMessage(error.message ?: "投屏失败"))
+                }
+        }
+    }
+
+    private fun castCurrentMediaIfNeeded() {
+        val deviceId = _uiState.value.castState.connectedDevice?.id ?: return
+        castToDevice(deviceId)
+    }
+
+    private fun seekCastTo(positionMs: Long) {
+        val duration = _uiState.value.durationMs.coerceAtLeast(0L)
+        val target = if (duration > 0L) positionMs.coerceIn(0L, duration) else positionMs.coerceAtLeast(0L)
+        viewModelScope.launch {
+            castController.seekTo(target)
+                .onFailure { emitEffect(PlayerContract.UiEffect.ShowMessage(it.message ?: "投屏控制失败")) }
+        }
+    }
+
+    private fun stopCasting() {
+        viewModelScope.launch {
+            castController.stopCasting()
+                .onSuccess { remotePosition ->
+                    stopCastProgressUpdates()
+                    val state = _uiState.value
+                    val episode = state.currentEpisode
+                    if (episode != null && state.selectedSourceKey != null) {
+                        prepareEpisode(
+                            sourceKey = state.selectedSourceKey,
+                            episode = episode,
+                            seekPositionMs = remotePosition ?: state.currentPositionMs,
+                            playWhenReady = true
+                        )
+                    }
+                    emitEffect(PlayerContract.UiEffect.ShowMessage("已停止投屏"))
+                }
+                .onFailure { error ->
+                    emitEffect(PlayerContract.UiEffect.ShowMessage(error.message ?: "停止投屏失败"))
+                }
+        }
+    }
+
+    private fun startCastProgressUpdates() {
+        if (castProgressJob?.isActive == true) return
+        castProgressJob = viewModelScope.launch {
+            while (isActive && castController.state.value.isCasting) {
+                castController.refreshPlaybackPosition()
+                saveCurrentProgress(clearCompleted = false)
+                delay(5_000L)
+            }
+        }
+    }
+
+    private fun stopCastProgressUpdates() {
+        castProgressJob?.cancel()
+        castProgressJob = null
+    }
+
+    private fun buildCurrentCastMedia(): CastMedia? {
+        val state = _uiState.value
+        val episode = state.currentEpisode ?: return null
+        if (!episode.isHls) return null
+        return CastMedia(
+            url = episode.url,
+            title = listOfNotNull(
+                state.video?.name?.takeIf { it.isNotBlank() },
+                episode.title.takeIf { it.isNotBlank() }
+            ).joinToString(" - ").ifBlank { "iCinema" },
+            subtitle = state.selectedSourceKey.orEmpty(),
+            imageUrl = state.video?.pic.orEmpty(),
+            positionMs = state.currentPositionMs,
+            durationMs = state.durationMs
+        )
+    }
+
     private suspend fun saveCurrentProgress(clearCompleted: Boolean) {
         val state = _uiState.value
         val videoId = state.videoId ?: return
@@ -467,8 +622,16 @@ class PlayerViewModel @Inject constructor(
             return
         }
 
-        val durationMs = player.duration.takeIf { it > 0 } ?: state.durationMs
-        val positionMs = player.currentPosition.coerceAtLeast(0L)
+        val durationMs = if (state.castState.isCasting) {
+            state.durationMs
+        } else {
+            player.duration.takeIf { it > 0 } ?: state.durationMs
+        }
+        val positionMs = if (state.castState.isCasting) {
+            state.currentPositionMs
+        } else {
+            player.currentPosition.coerceAtLeast(0L)
+        }
         if (durationMs <= 0L || positionMs <= 0L) return
 
         bizPort.saveProgress(
@@ -500,7 +663,10 @@ class PlayerViewModel @Inject constructor(
 
     override fun onCleared() {
         stopProgressUpdates()
+        stopCastProgressUpdates()
+        castDiscoveryJob?.cancel()
         preloadCoordinator.release()
+        castController.release()
         player.removeListener(playerListener)
         player.release()
         super.onCleared()
