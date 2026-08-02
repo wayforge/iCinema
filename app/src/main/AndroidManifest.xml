@@ -70,6 +70,21 @@
             android:theme="@style/Theme.ICinema"
             android:parentActivityName=".pages.home.HomeActivity" />
 
+        <activity
+            android:name=".pages.player.adfilter.HlsAdFilterActivity"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.ICinema"
+            android:parentActivityName=".pages.home.HomeActivity" />
+
+        <activity
+            android:name=".pages.player.adfilter.HlsAdClipPreviewActivity"
+            android:exported="false"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.ICinema"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
+            android:parentActivityName=".pages.player.adfilter.HlsAdFilterActivity" />
+
     </application>
 
 </manifest>

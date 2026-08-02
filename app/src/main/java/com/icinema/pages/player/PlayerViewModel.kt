@@ -201,6 +201,7 @@ class PlayerViewModel @Inject constructor(
             PlayerContract.UiIntent.ToggleAutoPlayNext -> toggleAutoPlayNext()
             PlayerContract.UiIntent.ToggleControlsLock -> toggleControlsLock()
             PlayerContract.UiIntent.ToggleGestureSeek -> toggleGestureSeek()
+            PlayerContract.UiIntent.MarkCurrentSegmentAsAd -> markCurrentSegmentAsAd()
             is PlayerContract.UiIntent.GestureSeek -> seekBy(intent.deltaMs)
             PlayerContract.UiIntent.OpenCastFlow -> openCastFlow()
             PlayerContract.UiIntent.RefreshCastDevices -> startCastDiscovery()
@@ -508,6 +509,26 @@ class PlayerViewModel @Inject constructor(
         val next = !_uiState.value.gestureSeekEnabled
         commit(PlayerContract.Mutation.GestureSeekChanged(next))
         persistPlayerSettings()
+    }
+
+    private fun markCurrentSegmentAsAd() {
+        val state = _uiState.value
+        val episode = state.currentEpisode
+        if (episode == null) {
+            emitEffect(PlayerContract.UiEffect.ShowMessage("暂无可标记的播放片段"))
+            return
+        }
+        viewModelScope.launch {
+            hlsSessionManager.markCurrentSegmentAsAd(
+                playbackPositionMs = player.currentPosition.coerceAtLeast(state.currentPositionMs),
+                videoTitle = state.video?.name.orEmpty(),
+                episodeTitle = episode.title
+            ).onSuccess { message ->
+                emitEffect(PlayerContract.UiEffect.ShowMessage(message))
+            }.onFailure { error ->
+                emitEffect(PlayerContract.UiEffect.ShowMessage(error.message ?: "广告标记失败"))
+            }
+        }
     }
 
     private fun persistPlayerSettings() {

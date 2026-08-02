@@ -69,6 +69,7 @@ object PlayerContract {
         data object ToggleAutoPlayNext : UiIntent
         data object ToggleControlsLock : UiIntent
         data object ToggleGestureSeek : UiIntent
+        data object MarkCurrentSegmentAsAd : UiIntent
         data class GestureSeek(val deltaMs: Long) : UiIntent
         data object OpenCastFlow : UiIntent
         data object RefreshCastDevices : UiIntent

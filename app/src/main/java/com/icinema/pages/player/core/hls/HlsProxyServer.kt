@@ -27,17 +27,20 @@ class HlsProxyServer @Inject constructor(
     private val okHttpClient: OkHttpClient,
     private val manifestRewriter: HlsManifestRewriter,
     private val cache: HlsPersistentCache,
+    private val adRuleStore: HlsAdRuleStore,
     private val prefetchCoordinator: HlsPrefetchCoordinator
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
+    private val recentResources = ArrayDeque<RecentHlsResource>()
     private var serverSocket: ServerSocket? = null
     private var port: Int = 0
 
     fun proxyUrl(
         originUrl: String,
         type: HlsProxyResourceType,
-        target: HlsProxyTarget
+        target: HlsProxyTarget,
+        parentPlaylistUrl: String? = null
     ): String {
         ensureStarted()
         val host = when (target) {
@@ -48,7 +51,47 @@ class HlsProxyServer @Inject constructor(
             HlsProxyResourceType.Manifest -> MANIFEST_PATH
             HlsProxyResourceType.Resource -> RESOURCE_PATH
         }
-        return "http://$host:$port$path?u=${URLEncoder.encode(originUrl, Charsets.UTF_8.name())}"
+        val query = buildString {
+            append("u=").append(URLEncoder.encode(originUrl, Charsets.UTF_8.name()))
+            if (!parentPlaylistUrl.isNullOrBlank()) {
+                append("&p=").append(URLEncoder.encode(parentPlaylistUrl, Charsets.UTF_8.name()))
+            }
+        }
+        return "http://$host:$port$path?$query"
+    }
+
+    fun resourceUrl(originUrl: String, target: HlsProxyTarget): String {
+        return proxyUrl(
+            originUrl = originUrl,
+            type = HlsProxyResourceType.Resource,
+            target = target
+        )
+    }
+
+    fun markCurrentSegmentAsAd(
+        playbackPositionMs: Long,
+        videoTitle: String,
+        episodeTitle: String
+    ): Result<MarkedHlsAdSegment> {
+        return runCatching {
+            val target = resolveCurrentResource(playbackPositionMs)
+                ?: throw IllegalStateException("还没有捕获到当前播放片段，请播放几秒后再标记")
+            val rule = adRuleStore.upsertMarkedSegment(
+                playlistUrl = target.playlistUrl,
+                segmentUrl = target.url,
+                durationSeconds = target.durationSeconds,
+                videoTitle = videoTitle,
+                episodeTitle = episodeTitle
+            )
+            MarkedHlsAdSegment(
+                rule = rule,
+                message = if (rule.urlPattern == null) {
+                    "已标记当前广告片段"
+                } else {
+                    "已标记广告，并生成同类片段过滤规则"
+                }
+            )
+        }
     }
 
     private fun ensureStarted() {
@@ -139,12 +182,19 @@ class HlsProxyServer @Inject constructor(
             runCatching { cache.writeText(originUrl, HLS_CONTENT_TYPE, playlist) }
         }
         val target = request.target
+        val mediaSegments = manifestRewriter.extractMediaSegments(originUrl, playlist)
         val knownAdUrls = buildSet {
             cachedPlaylist?.let { addAll(manifestRewriter.extractAdResourceUrls(originUrl, it)) }
             addAll(manifestRewriter.extractAdResourceUrls(originUrl, playlist))
+            addAll(adRuleStore.matchingAdUrls(originUrl, mediaSegments.map { it.url }))
         }
         val rewritten = manifestRewriter.rewrite(originUrl, playlist, knownAdUrls) { url, type ->
-            proxyUrl(url, type, target)
+            proxyUrl(
+                originUrl = url,
+                type = type,
+                target = target,
+                parentPlaylistUrl = originUrl.takeIf { type == HlsProxyResourceType.Resource }
+            )
         }
         prefetchCoordinator.prefetchResources(rewritten.prefetchUrls)
         writeTextResponse(
@@ -158,6 +208,9 @@ class HlsProxyServer @Inject constructor(
 
     private fun serveResource(socket: Socket, request: ProxyRequest) {
         val originUrl = request.query["u"] ?: throw IllegalArgumentException("missing url")
+        request.query["p"]?.takeIf { isMediaResourceUrl(originUrl) }?.let { playlistUrl ->
+            recordRecentResource(originUrl, playlistUrl)
+        }
         val range = request.headers["range"]?.let(::parseRangeHeader)
         val cached = cache.cachedResource(originUrl)
         if (cached != null) {
@@ -391,6 +444,64 @@ class HlsProxyServer @Inject constructor(
         }.getOrNull()
     }
 
+    private fun recordRecentResource(resourceUrl: String, playlistUrl: String) {
+        synchronized(recentResources) {
+            val now = System.currentTimeMillis()
+            recentResources.removeAll { it.url == resourceUrl && it.playlistUrl == playlistUrl }
+            recentResources.addLast(
+                RecentHlsResource(
+                    url = resourceUrl,
+                    playlistUrl = playlistUrl,
+                    requestedAtMs = now
+                )
+            )
+            while (recentResources.size > RECENT_RESOURCE_LIMIT) {
+                recentResources.removeFirst()
+            }
+        }
+    }
+
+    private fun resolveCurrentResource(playbackPositionMs: Long): ResolvedAdCandidate? {
+        val recent = synchronized(recentResources) {
+            recentResources.toList()
+        }.asReversed()
+            .firstOrNull { System.currentTimeMillis() - it.requestedAtMs <= RECENT_RESOURCE_WINDOW_MS }
+            ?: return null
+
+        val playlistText = cache.cachedText(recent.playlistUrl)
+        val mediaSegments = playlistText
+            ?.let { manifestRewriter.extractMediaSegments(recent.playlistUrl, it) }
+            .orEmpty()
+        val byPosition = findSegmentAtPosition(mediaSegments, playbackPositionMs)
+        val target = byPosition ?: mediaSegments.firstOrNull { it.url == recent.url }
+        return ResolvedAdCandidate(
+            url = target?.url ?: recent.url,
+            playlistUrl = recent.playlistUrl,
+            durationSeconds = target?.durationSeconds
+        )
+    }
+
+    private fun findSegmentAtPosition(
+        segments: List<HlsMediaSegment>,
+        playbackPositionMs: Long
+    ): HlsMediaSegment? {
+        if (segments.isEmpty() || playbackPositionMs <= 0L) return null
+        val positionSeconds = playbackPositionMs / 1000.0
+        return segments.firstOrNull { segment ->
+            val start = segment.startSeconds ?: return@firstOrNull false
+            val end = start + (segment.durationSeconds ?: 0.0)
+            positionSeconds >= start && positionSeconds < end
+        }
+    }
+
+    private fun isMediaResourceUrl(url: String): Boolean {
+        val lower = url.substringBefore('?').lowercase(Locale.US)
+        return lower.endsWith(".ts") ||
+            lower.endsWith(".m4s") ||
+            lower.endsWith(".mp4") ||
+            lower.endsWith(".aac")
+    }
+
     private fun Throwable.isClientDisconnect(): Boolean {
         val message = message.orEmpty().lowercase(Locale.US)
         return this is java.net.SocketException &&
@@ -403,6 +514,18 @@ class HlsProxyServer @Inject constructor(
         val query: Map<String, String>,
         val headers: Map<String, String>,
         val target: HlsProxyTarget
+    )
+
+    private data class RecentHlsResource(
+        val url: String,
+        val playlistUrl: String,
+        val requestedAtMs: Long
+    )
+
+    private data class ResolvedAdCandidate(
+        val url: String,
+        val playlistUrl: String,
+        val durationSeconds: Double?
     )
 
     private sealed interface UpstreamManifestResult {
@@ -442,5 +565,7 @@ class HlsProxyServer @Inject constructor(
         private const val HLS_CONTENT_TYPE = "application/vnd.apple.mpegurl"
         private const val SOCKET_TIMEOUT_MS = 30_000
         private const val BACKLOG = 32
+        private const val RECENT_RESOURCE_LIMIT = 30
+        private const val RECENT_RESOURCE_WINDOW_MS = 120_000L
     }
 }

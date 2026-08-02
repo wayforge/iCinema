@@ -3,6 +3,7 @@ package com.icinema.pages.player
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -24,6 +26,7 @@ import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
@@ -315,7 +318,9 @@ private fun PlayerTopBar(
 
         if (!isLocked) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 TextButton(onClick = { onIntent(PlayerContract.UiIntent.SetPlaybackSpeed(1.0f)) }) {
@@ -335,6 +340,15 @@ private fun PlayerTopBar(
                 }
                 TextButton(onClick = { onIntent(PlayerContract.UiIntent.ToggleGestureSeek) }) {
                     Text(if (gestureSeekEnabled) "手势开" else "手势关", color = Color.White)
+                }
+                TextButton(onClick = { onIntent(PlayerContract.UiIntent.MarkCurrentSegmentAsAd) }) {
+                    Icon(
+                        imageVector = Icons.Filled.Report,
+                        contentDescription = null,
+                        tint = Color.White
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("标记广告", color = Color.White)
                 }
             }
         }

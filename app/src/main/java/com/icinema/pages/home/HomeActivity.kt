@@ -23,6 +23,7 @@ import com.icinema.pages.detail.DetailActivity
 import com.icinema.pages.favorite.FavoriteActivity
 import com.icinema.pages.history.HistoryActivity
 import com.icinema.pages.player.PlayerActivity
+import com.icinema.pages.player.adfilter.HlsAdFilterActivity
 import com.icinema.ui.theme.iCinemaTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -126,6 +127,9 @@ class HomeActivity : ComponentActivity() {
                             },
                             onOpenFavorite = {
                                 FavoriteActivity.start(this@HomeActivity)
+                            },
+                            onOpenAdFilter = {
+                                HlsAdFilterActivity.start(this@HomeActivity)
                             }
                         )
 

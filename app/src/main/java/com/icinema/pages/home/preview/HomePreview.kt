@@ -48,6 +48,7 @@ private fun HomeShellPreview(selectedTab: HomeTab) {
             onOpenCategoryEditor = {},
             onOpenHistory = {},
             onOpenFavorite = {},
+            onOpenAdFilter = {},
             onContinueWatchingClick = { _, _, _ -> },
             onSortChange = {},
             onLoadMoreDiscover = {},

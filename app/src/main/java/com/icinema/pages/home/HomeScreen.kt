@@ -17,7 +17,8 @@ fun HomeScreen(
     onContinueWatchingClick: (Long, String, Int) -> Unit,
     onOpenCategoryEditor: () -> Unit,
     onOpenHistory: () -> Unit,
-    onOpenFavorite: () -> Unit
+    onOpenFavorite: () -> Unit,
+    onOpenAdFilter: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     var selectedTabName by rememberSaveable { mutableStateOf(HomeTab.Discover.name) }
@@ -72,6 +73,7 @@ fun HomeScreen(
         onOpenCategoryEditor = onOpenCategoryEditor,
         onOpenHistory = onOpenHistory,
         onOpenFavorite = onOpenFavorite,
+        onOpenAdFilter = onOpenAdFilter,
         onContinueWatchingClick = onContinueWatchingClick,
         onSortChange = { sortMode ->
             viewModel.handleIntent(HomeContract.UiIntent.ChangeSort(sortMode))

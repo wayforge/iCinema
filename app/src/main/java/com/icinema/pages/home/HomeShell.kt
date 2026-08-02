@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,6 +40,7 @@ internal fun HomeShell(
     onOpenCategoryEditor: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenFavorite: () -> Unit,
+    onOpenAdFilter: () -> Unit,
     onContinueWatchingClick: (Long, String, Int) -> Unit,
     onSortChange: (HomeContract.SortMode) -> Unit,
     onLoadMoreDiscover: (Int?) -> Unit,
@@ -55,6 +57,13 @@ internal fun HomeShell(
                             Icon(
                                 imageVector = Icons.Outlined.Tune,
                                 contentDescription = "调整首页分类"
+                            )
+                        }
+                    } else if (selectedTab == HomeTab.Mine) {
+                        IconButton(onClick = onOpenAdFilter) {
+                            Icon(
+                                imageVector = Icons.Outlined.Block,
+                                contentDescription = "广告过滤"
                             )
                         }
                     }

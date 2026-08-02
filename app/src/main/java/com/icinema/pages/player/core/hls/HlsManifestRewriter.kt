@@ -181,6 +181,47 @@ class HlsManifestRewriter @Inject constructor() {
         return urls
     }
 
+    fun extractMediaSegments(playlistUrl: String, playlist: String): List<HlsMediaSegment> {
+        val segments = mutableListOf<HlsMediaSegment>()
+        var nextUriIsVariant = false
+        var pendingDurationSeconds: Double? = null
+        var elapsedSeconds = 0.0
+
+        playlist.lineSequence().forEach { rawLine ->
+            val line = rawLine.trim()
+            when {
+                line.startsWith("#EXT-X-STREAM-INF", ignoreCase = true) -> {
+                    nextUriIsVariant = true
+                }
+                line.startsWith("#EXTINF", ignoreCase = true) -> {
+                    pendingDurationSeconds = line.substringAfter(':', "")
+                        .substringBefore(',')
+                        .toDoubleOrNull()
+                }
+                line.isBlank() || line.startsWith("#") -> Unit
+                else -> {
+                    val absoluteUrl = resolveUrl(playlistUrl, line)
+                    val isManifest = nextUriIsVariant || absoluteUrl.contains(".m3u8", ignoreCase = true)
+                    if (!isManifest) {
+                        val duration = pendingDurationSeconds
+                        segments.add(
+                            HlsMediaSegment(
+                                url = absoluteUrl,
+                                durationSeconds = duration,
+                                startSeconds = elapsedSeconds
+                            )
+                        )
+                        elapsedSeconds += duration ?: 0.0
+                    }
+                    nextUriIsVariant = false
+                    pendingDurationSeconds = null
+                }
+            }
+        }
+
+        return segments
+    }
+
     private fun rewriteUriAttribute(
         playlistUrl: String,
         line: String,

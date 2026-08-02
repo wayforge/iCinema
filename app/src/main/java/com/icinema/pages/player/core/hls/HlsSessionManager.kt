@@ -24,7 +24,25 @@ class HlsSessionManager @Inject constructor(
         )
     }
 
+    fun resourcePlaybackUrl(originUrl: String): String {
+        return proxyServer.resourceUrl(originUrl, HlsProxyTarget.Loopback)
+    }
+
     fun prefetch(originUrl: String) {
         prefetchCoordinator.prefetchManifest(originUrl)
+    }
+
+    fun markCurrentSegmentAsAd(
+        playbackPositionMs: Long,
+        videoTitle: String,
+        episodeTitle: String
+    ): Result<String> {
+        return proxyServer.markCurrentSegmentAsAd(
+            playbackPositionMs = playbackPositionMs,
+            videoTitle = videoTitle,
+            episodeTitle = episodeTitle
+        ).onSuccess { segment ->
+            prefetchCoordinator.prefetchResources(listOf(segment.rule.segmentUrl))
+        }.map { it.message }
     }
 }
