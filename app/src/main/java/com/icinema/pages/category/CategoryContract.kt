@@ -14,6 +14,7 @@ object CategoryContract {
         data object Load : UiIntent
         data class ToggleCategory(val categoryId: Int) : UiIntent
         data object ToggleSelectAll : UiIntent
+        data object ExitWithoutSave : UiIntent
         data object SaveAndExit : UiIntent
     }
 

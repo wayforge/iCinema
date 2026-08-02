@@ -30,6 +30,7 @@ class CategoryViewModel @Inject constructor(
             CategoryContract.UiIntent.Load -> loadCategories()
             is CategoryContract.UiIntent.ToggleCategory -> toggleCategory(intent.categoryId)
             CategoryContract.UiIntent.ToggleSelectAll -> toggleSelectAll()
+            CategoryContract.UiIntent.ExitWithoutSave -> exitWithoutSave()
             CategoryContract.UiIntent.SaveAndExit -> saveAndExit()
         }
     }
@@ -83,6 +84,10 @@ class CategoryViewModel @Inject constructor(
         val resolved = selectionStore.resolveVisibleCategoryIds(state.editingCategoryIds, allIds)
         selectionStore.saveSelectedCategoryIds(resolved)
         emitEffect(CategoryContract.UiEffect.FinishWithResult(previous != resolved))
+    }
+
+    private fun exitWithoutSave() {
+        emitEffect(CategoryContract.UiEffect.FinishWithResult(false))
     }
 
     private fun commit(mutation: CategoryContract.Mutation) {

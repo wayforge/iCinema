@@ -6,7 +6,7 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.ViewWeek
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.SnackbarHostState
@@ -72,8 +72,8 @@ internal fun DiscoverPage(
             actions = {
                 IconButton(onClick = onOpenCategoryEditor) {
                     Icon(
-                        imageVector = Icons.Outlined.ViewWeek,
-                        contentDescription = "管理分类标签"
+                        imageVector = Icons.Outlined.Tune,
+                        contentDescription = "调整首页分类"
                     )
                 }
             }
