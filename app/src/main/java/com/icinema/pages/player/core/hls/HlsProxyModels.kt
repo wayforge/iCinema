@@ -21,6 +21,11 @@ data class HlsMediaSegment(
     val startSeconds: Double?
 )
 
+data class HlsResolvedMediaSegment(
+    val playlistUrl: String,
+    val segment: HlsMediaSegment
+)
+
 data class HlsAdRule(
     val id: String,
     val playlistUrl: String,

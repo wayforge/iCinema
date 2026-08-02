@@ -69,12 +69,13 @@ class HlsProxyServer @Inject constructor(
     }
 
     fun markCurrentSegmentAsAd(
+        originUrl: String,
         playbackPositionMs: Long,
         videoTitle: String,
         episodeTitle: String
     ): Result<MarkedHlsAdSegment> {
         return runCatching {
-            val target = resolveCurrentResource(playbackPositionMs)
+            val target = resolveCurrentResource(originUrl, playbackPositionMs)
                 ?: throw IllegalStateException("还没有捕获到当前播放片段，请播放几秒后再标记")
             val rule = adRuleStore.upsertMarkedSegment(
                 playlistUrl = target.playlistUrl,
@@ -181,6 +182,7 @@ class HlsProxyServer @Inject constructor(
         if (upstreamManifest != null) {
             runCatching { cache.writeText(originUrl, HLS_CONTENT_TYPE, playlist) }
         }
+        prefetchCoordinator.recordManifestSnapshot(originUrl, playlist)
         val target = request.target
         val mediaSegments = manifestRewriter.extractMediaSegments(originUrl, playlist)
         val knownAdUrls = buildSet {
@@ -461,7 +463,15 @@ class HlsProxyServer @Inject constructor(
         }
     }
 
-    private fun resolveCurrentResource(playbackPositionMs: Long): ResolvedAdCandidate? {
+    private fun resolveCurrentResource(originUrl: String, playbackPositionMs: Long): ResolvedAdCandidate? {
+        prefetchCoordinator.resolveSegment(originUrl, playbackPositionMs)?.let { resolved ->
+            return ResolvedAdCandidate(
+                url = resolved.segment.url,
+                playlistUrl = resolved.playlistUrl,
+                durationSeconds = resolved.segment.durationSeconds
+            )
+        }
+
         val recent = synchronized(recentResources) {
             recentResources.toList()
         }.asReversed()

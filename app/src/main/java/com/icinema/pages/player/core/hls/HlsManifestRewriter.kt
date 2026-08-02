@@ -222,6 +222,35 @@ class HlsManifestRewriter @Inject constructor() {
         return segments
     }
 
+    fun extractChildManifestUrls(playlistUrl: String, playlist: String): List<String> {
+        val urls = linkedSetOf<String>()
+        var nextUriIsVariant = false
+
+        playlist.lineSequence().forEach { rawLine ->
+            val line = rawLine.trim()
+            when {
+                line.isBlank() -> Unit
+                line.startsWith("#EXT-X-STREAM-INF", ignoreCase = true) -> {
+                    nextUriIsVariant = true
+                }
+                line.startsWith("#EXT-X-I-FRAME-STREAM-INF", ignoreCase = true) ||
+                    line.startsWith("#EXT-X-MEDIA", ignoreCase = true) -> {
+                    extractUriAttributeUrl(playlistUrl, line)?.let(urls::add)
+                }
+                line.startsWith("#") -> Unit
+                else -> {
+                    val absoluteUrl = resolveUrl(playlistUrl, line)
+                    if (nextUriIsVariant || absoluteUrl.contains(".m3u8", ignoreCase = true)) {
+                        urls.add(absoluteUrl)
+                    }
+                    nextUriIsVariant = false
+                }
+            }
+        }
+
+        return urls.toList()
+    }
+
     private fun rewriteUriAttribute(
         playlistUrl: String,
         line: String,
@@ -234,6 +263,11 @@ class HlsManifestRewriter @Inject constructor() {
         val proxiedUrl = proxyUrlFactory(absoluteUrl, resourceType)
         val rewrittenLine = line.replaceRange(match.groups[1]!!.range, proxiedUrl)
         return RewrittenAttribute(rewrittenLine, absoluteUrl)
+    }
+
+    private fun extractUriAttributeUrl(playlistUrl: String, line: String): String? {
+        val match = URI_ATTRIBUTE_REGEX.find(line) ?: return null
+        return resolveUrl(playlistUrl, match.groupValues[1])
     }
 
     private fun resolveUrl(baseUrl: String, candidate: String): String {

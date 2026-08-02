@@ -52,7 +52,7 @@ class PlayerViewModel @Inject constructor(
     private var castDiscoveryJob: Job? = null
     private var castProgressJob: Job? = null
     private var autoSwitchedForPlaybackKey: String? = null
-    private var retriedProxyPlaybackKey: String? = null
+    private var retriedPlaybackKey: String? = null
     private var shouldRefreshHomeOnExit: Boolean = false
 
     private val playerListener = object : Media3Player.Listener {
@@ -85,9 +85,9 @@ class PlayerViewModel @Inject constructor(
         override fun onPlayerError(error: PlaybackException) {
             val state = _uiState.value
             val playbackKey = buildPlaybackKey(state)
-            if (playbackKey != null && isLikelyProxyError(error)) {
-                if (retriedProxyPlaybackKey != playbackKey) {
-                    retriedProxyPlaybackKey = playbackKey
+            if (playbackKey != null && isLikelyPlaybackChainError(error)) {
+                if (retriedPlaybackKey != playbackKey) {
+                    retriedPlaybackKey = playbackKey
                     val source = state.playSources.firstOrNull { it.key == state.selectedSourceKey }
                     val currentEpisode = source?.episodes?.getOrNull(state.selectedEpisodeIndex)
                     if (source != null && currentEpisode != null) {
@@ -358,7 +358,7 @@ class PlayerViewModel @Inject constructor(
                     castCurrentMediaIfNeeded()
                     return
                 }
-                retriedProxyPlaybackKey = null
+                retriedPlaybackKey = null
                 prepareEpisode(
                     sourceKey = state.selectedSourceKey,
                     episode = state.currentEpisode,
@@ -413,17 +413,10 @@ class PlayerViewModel @Inject constructor(
         }
 
         commit(PlayerContract.Mutation.ErrorChanged(null))
-        val playbackUrl = runCatching { hlsSessionManager.playbackUrl(episode.url) }
-            .getOrElse { error ->
-                val message = error.message ?: "播放代理启动失败"
-                commit(PlayerContract.Mutation.ErrorChanged(message))
-                emitEffect(PlayerContract.UiEffect.ShowMessage(message))
-                return
-            }
         player.stop()
         player.setMediaItem(
             MediaItem.Builder()
-                .setUri(playbackUrl)
+                .setUri(episode.url)
                 .setMimeType(MimeTypes.APPLICATION_M3U8)
                 .build()
         )
@@ -520,6 +513,7 @@ class PlayerViewModel @Inject constructor(
         }
         viewModelScope.launch {
             hlsSessionManager.markCurrentSegmentAsAd(
+                originUrl = episode.url,
                 playbackPositionMs = player.currentPosition.coerceAtLeast(state.currentPositionMs),
                 videoTitle = state.video?.name.orEmpty(),
                 episodeTitle = episode.title
@@ -658,6 +652,7 @@ class PlayerViewModel @Inject constructor(
         val state = _uiState.value
         val episode = state.currentEpisode ?: return null
         if (!episode.isHls) return null
+        hlsSessionManager.prefetch(episode.url)
         val castUrl = runCatching { hlsSessionManager.castUrl(episode.url) }.getOrNull() ?: return null
         return CastMedia(
             url = castUrl,
@@ -715,7 +710,7 @@ class PlayerViewModel @Inject constructor(
         return "$videoId:$source:${state.selectedEpisodeIndex}"
     }
 
-    private fun isLikelyProxyError(error: PlaybackException): Boolean {
+    private fun isLikelyPlaybackChainError(error: PlaybackException): Boolean {
         val texts = buildList {
             var current: Throwable? = error
             while (current != null) {
@@ -727,6 +722,7 @@ class PlayerViewModel @Inject constructor(
         return texts.contains("127.0.0.1") ||
             texts.contains("localhost") ||
             texts.contains("hlsproxy") ||
+            texts.contains("cache") ||
             texts.contains("response code: 502") ||
             texts.contains("response code=502") ||
             texts.contains("response code: 503") ||

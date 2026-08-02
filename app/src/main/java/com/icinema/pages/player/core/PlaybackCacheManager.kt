@@ -14,6 +14,10 @@ class PlaybackCacheManager @Inject constructor(
         File(context.noBackupFilesDir, "hls-proxy")
     }
 
+    val media3CacheDir: File by lazy {
+        File(context.noBackupFilesDir, "media3-playback")
+    }
+
     val maxCacheBytes: Long = MAX_CACHE_BYTES
 
     companion object {

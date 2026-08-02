@@ -28,17 +28,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.icinema.pages.player.core.PlaybackMediaSourceFactory
-import com.icinema.pages.player.core.hls.HlsSessionManager
 import com.icinema.ui.theme.iCinemaTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
 @AndroidEntryPoint
 class HlsAdClipPreviewActivity : ComponentActivity() {
-    @Inject lateinit var hlsSessionManager: HlsSessionManager
     @Inject lateinit var playbackMediaSourceFactory: PlaybackMediaSourceFactory
 
     companion object {
@@ -75,7 +74,6 @@ class HlsAdClipPreviewActivity : ComponentActivity() {
                     HlsAdClipPreviewScreen(
                         title = title,
                         segmentUrl = segmentUrl,
-                        hlsSessionManager = hlsSessionManager,
                         playbackMediaSourceFactory = playbackMediaSourceFactory,
                         onBack = { finish() }
                     )
@@ -90,7 +88,6 @@ class HlsAdClipPreviewActivity : ComponentActivity() {
 private fun HlsAdClipPreviewScreen(
     title: String,
     segmentUrl: String,
-    hlsSessionManager: HlsSessionManager,
     playbackMediaSourceFactory: PlaybackMediaSourceFactory,
     onBack: () -> Unit
 ) {
@@ -100,7 +97,12 @@ private fun HlsAdClipPreviewScreen(
             .setMediaSourceFactory(playbackMediaSourceFactory.createMediaSourceFactory())
             .build()
             .apply {
-                setMediaItem(MediaItem.fromUri(hlsSessionManager.resourcePlaybackUrl(segmentUrl)))
+                setMediaItem(
+                    MediaItem.Builder()
+                        .setUri(segmentUrl)
+                        .setMimeType(MimeTypes.VIDEO_MP2T)
+                        .build()
+                )
                 prepare()
                 playWhenReady = true
             }

@@ -33,11 +33,13 @@ class HlsSessionManager @Inject constructor(
     }
 
     fun markCurrentSegmentAsAd(
+        originUrl: String,
         playbackPositionMs: Long,
         videoTitle: String,
         episodeTitle: String
     ): Result<String> {
         return proxyServer.markCurrentSegmentAsAd(
+            originUrl = originUrl,
             playbackPositionMs = playbackPositionMs,
             videoTitle = videoTitle,
             episodeTitle = episodeTitle

@@ -318,6 +318,7 @@ class DetailViewModel @Inject constructor(
             ?: source.episodes.getOrNull(episodeIndex)
             ?: return null
         if (!episode.isHls) return null
+        hlsSessionManager.prefetch(episode.url)
         val castUrl = runCatching { hlsSessionManager.castUrl(episode.url) }.getOrNull() ?: return null
 
         return CastMedia(
