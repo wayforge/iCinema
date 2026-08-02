@@ -15,7 +15,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import com.icinema.pages.home.HomeContract
-import com.icinema.pages.home.components.PageHeader
 import com.icinema.pages.home.components.SimpleEmptyState
 import com.icinema.pages.home.components.VideoGrid
 
@@ -49,8 +48,6 @@ internal fun SearchPage(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        PageHeader(sectionTitle = "搜索")
-
         SearchInputCard(
             query = searchQuery,
             onQueryChange = {

@@ -3,6 +3,10 @@ package com.icinema.pages.home
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -10,6 +14,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import com.icinema.pages.home.components.HomeBottomNavigation
+import com.icinema.pages.home.components.PageHeader
 import com.icinema.pages.home.discover.DiscoverPage
 import com.icinema.pages.home.mine.MinePage
 import com.icinema.pages.home.search.SearchPage
@@ -41,6 +46,21 @@ internal fun HomeShell(
     modifier: Modifier = Modifier
 ) {
     Scaffold(
+        topBar = {
+            PageHeader(
+                sectionTitle = selectedTab.label,
+                actions = {
+                    if (selectedTab == HomeTab.Discover) {
+                        IconButton(onClick = onOpenCategoryEditor) {
+                            Icon(
+                                imageVector = Icons.Outlined.Tune,
+                                contentDescription = "调整首页分类"
+                            )
+                        }
+                    }
+                }
+            )
+        },
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         containerColor = MaterialTheme.colorScheme.surface,
         contentWindowInsets = WindowInsets(0),
@@ -61,7 +81,6 @@ internal fun HomeShell(
                     onVideoClick = onVideoClick,
                     onRefresh = onRefreshDiscover,
                     onCategorySelected = onCategorySelected,
-                    onOpenCategoryEditor = onOpenCategoryEditor,
                     onLoadMore = onLoadMoreDiscover,
                     modifier = Modifier
                         .fillMaxSize()

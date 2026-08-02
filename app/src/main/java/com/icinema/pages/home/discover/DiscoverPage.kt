@@ -5,10 +5,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.ExperimentalMaterialApi
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Tune
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -19,7 +15,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import com.icinema.domain.model.Category
 import com.icinema.pages.home.HomeContract
-import com.icinema.pages.home.components.PageHeader
 import com.icinema.pages.home.components.SimpleEmptyState
 import com.icinema.pages.home.components.VideoGrid
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -33,7 +28,6 @@ internal fun DiscoverPage(
     onVideoClick: (Long) -> Unit,
     onRefresh: (Int?) -> Unit,
     onCategorySelected: (Int?) -> Unit,
-    onOpenCategoryEditor: () -> Unit,
     onLoadMore: (Int?) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -67,18 +61,6 @@ internal fun DiscoverPage(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        PageHeader(
-            sectionTitle = "发现",
-            actions = {
-                IconButton(onClick = onOpenCategoryEditor) {
-                    Icon(
-                        imageVector = Icons.Outlined.Tune,
-                        contentDescription = "调整首页分类"
-                    )
-                }
-            }
-        )
-
         CategoryBar(
             categories = state.visibleCategories,
             selectedCategoryId = state.selectedCategoryId,
