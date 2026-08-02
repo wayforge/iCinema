@@ -52,6 +52,7 @@ class PlayerViewModel @Inject constructor(
     private var castDiscoveryJob: Job? = null
     private var castProgressJob: Job? = null
     private var autoSwitchedForPlaybackKey: String? = null
+    private var retriedProxyPlaybackKey: String? = null
     private var shouldRefreshHomeOnExit: Boolean = false
 
     private val playerListener = object : Media3Player.Listener {
@@ -84,6 +85,28 @@ class PlayerViewModel @Inject constructor(
         override fun onPlayerError(error: PlaybackException) {
             val state = _uiState.value
             val playbackKey = buildPlaybackKey(state)
+            if (playbackKey != null && isLikelyProxyError(error)) {
+                if (retriedProxyPlaybackKey != playbackKey) {
+                    retriedProxyPlaybackKey = playbackKey
+                    val source = state.playSources.firstOrNull { it.key == state.selectedSourceKey }
+                    val currentEpisode = source?.episodes?.getOrNull(state.selectedEpisodeIndex)
+                    if (source != null && currentEpisode != null) {
+                        emitEffect(PlayerContract.UiEffect.ShowMessage("播放链路异常，正在重试当前剧集"))
+                        prepareEpisode(
+                            sourceKey = source.key,
+                            episode = currentEpisode,
+                            seekPositionMs = player.currentPosition.coerceAtLeast(0L),
+                            playWhenReady = true
+                        )
+                        return
+                    }
+                }
+                val message = "播放链路异常，请稍后重试"
+                commit(PlayerContract.Mutation.ErrorChanged(message))
+                emitEffect(PlayerContract.UiEffect.ShowMessage(message))
+                return
+            }
+
             if (playbackKey != null && autoSwitchedForPlaybackKey != playbackKey) {
                 val source = state.playSources.firstOrNull { it.key == state.selectedSourceKey }
                 val currentEpisode = source?.episodes?.getOrNull(state.selectedEpisodeIndex)
@@ -334,6 +357,7 @@ class PlayerViewModel @Inject constructor(
                     castCurrentMediaIfNeeded()
                     return
                 }
+                retriedProxyPlaybackKey = null
                 prepareEpisode(
                     sourceKey = state.selectedSourceKey,
                     episode = state.currentEpisode,
@@ -668,6 +692,30 @@ class PlayerViewModel @Inject constructor(
         val videoId = state.videoId ?: return null
         val source = state.selectedSourceKey ?: return null
         return "$videoId:$source:${state.selectedEpisodeIndex}"
+    }
+
+    private fun isLikelyProxyError(error: PlaybackException): Boolean {
+        val texts = buildList {
+            var current: Throwable? = error
+            while (current != null) {
+                add(current.javaClass.name)
+                add(current.message.orEmpty())
+                current = current.cause
+            }
+        }.joinToString(" | ").lowercase()
+        return texts.contains("127.0.0.1") ||
+            texts.contains("localhost") ||
+            texts.contains("hlsproxy") ||
+            texts.contains("response code: 502") ||
+            texts.contains("response code=502") ||
+            texts.contains("response code: 503") ||
+            texts.contains("response code=503") ||
+            texts.contains("manifest temporarily unavailable") ||
+            texts.contains("temporarily unavailable") ||
+            texts.contains("resource request failed") ||
+            texts.contains("broken pipe") ||
+            texts.contains("connection reset") ||
+            texts.contains("socket closed")
     }
 
     private fun commit(mutation: PlayerContract.Mutation) {

@@ -68,7 +68,14 @@ class HlsProxyServer @Inject constructor(
         while (!socket.isClosed) {
             runCatching {
                 val client = socket.accept()
-                scope.launch { handleClient(client) }
+                scope.launch {
+                    runCatching { handleClient(client) }
+                        .onFailure { error ->
+                            if (!error.isClientDisconnect()) {
+                                Log.d(TAG, "client handler failed error=${error.message}", error)
+                            }
+                        }
+                }
             }.onFailure { error ->
                 if (!socket.isClosed) {
                     Log.d(TAG, "accept failed error=${error.message}")
@@ -88,40 +95,65 @@ class HlsProxyServer @Inject constructor(
                     else -> writeTextResponse(client.getOutputStream(), 404, "text/plain", "Not found", request.method == "HEAD")
                 }
             }.onFailure { error ->
-                Log.d(TAG, "request failed path=${request.path} error=${error.message}", error)
-                writeTextResponse(
-                    output = client.getOutputStream(),
-                    statusCode = 502,
-                    contentType = "text/plain",
-                    body = error.message ?: "Proxy error",
-                    headersOnly = request.method == "HEAD"
-                )
+                if (!error.isClientDisconnect()) {
+                    Log.d(TAG, "request failed path=${request.path} error=${error.message}", error)
+                    runCatching {
+                        writeTextResponse(
+                            output = client.getOutputStream(),
+                            statusCode = 502,
+                            contentType = "text/plain",
+                            body = error.message ?: "Proxy error",
+                            headersOnly = request.method == "HEAD"
+                        )
+                    }.onFailure { writeError ->
+                        if (!writeError.isClientDisconnect()) {
+                            Log.d(TAG, "failed to write error response path=${request.path} writeError=${writeError.message}", writeError)
+                        }
+                    }
+                }
             }
         }
     }
 
     private fun serveManifest(socket: Socket, request: ProxyRequest) {
         val originUrl = request.query["u"] ?: throw IllegalArgumentException("missing url")
+        val cachedPlaylist = cache.cachedText(originUrl)
         val upstreamRequest = Request.Builder().url(originUrl).get().build()
-        okHttpClient.newCall(upstreamRequest).execute().use { response ->
-            if (!response.isSuccessful) {
-                writeTextResponse(socket.getOutputStream(), response.code, "text/plain", "Manifest request failed", request.method == "HEAD")
-                return
+        val upstreamResult = runCatching {
+            okHttpClient.newCall(upstreamRequest).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@use UpstreamManifestResult.Failed(response.code)
+                }
+                UpstreamManifestResult.Succeeded(response.body?.string().orEmpty())
             }
-            val playlist = response.body?.string().orEmpty()
-            val target = request.target
-            val rewritten = manifestRewriter.rewrite(originUrl, playlist) { url, type ->
-                proxyUrl(url, type, target)
-            }
-            prefetchCoordinator.prefetchResources(rewritten.prefetchUrls)
-            writeTextResponse(
-                output = socket.getOutputStream(),
-                statusCode = 200,
-                contentType = HLS_CONTENT_TYPE,
-                body = rewritten.playlist,
-                headersOnly = request.method == "HEAD"
-            )
         }
+        val upstreamManifest = upstreamResult.getOrNull() as? UpstreamManifestResult.Succeeded
+        val playlist = upstreamManifest?.playlist ?: cachedPlaylist
+        if (playlist == null) {
+            val statusCode = (upstreamResult.getOrNull() as? UpstreamManifestResult.Failed)?.statusCode ?: 503
+            writeTextResponse(socket.getOutputStream(), statusCode, "text/plain", "Manifest temporarily unavailable", request.method == "HEAD")
+            return
+        }
+
+        if (upstreamManifest != null) {
+            runCatching { cache.writeText(originUrl, HLS_CONTENT_TYPE, playlist) }
+        }
+        val target = request.target
+        val knownAdUrls = buildSet {
+            cachedPlaylist?.let { addAll(manifestRewriter.extractAdResourceUrls(originUrl, it)) }
+            addAll(manifestRewriter.extractAdResourceUrls(originUrl, playlist))
+        }
+        val rewritten = manifestRewriter.rewrite(originUrl, playlist, knownAdUrls) { url, type ->
+            proxyUrl(url, type, target)
+        }
+        prefetchCoordinator.prefetchResources(rewritten.prefetchUrls)
+        writeTextResponse(
+            output = socket.getOutputStream(),
+            statusCode = 200,
+            contentType = HLS_CONTENT_TYPE,
+            body = rewritten.playlist,
+            headersOnly = request.method == "HEAD"
+        )
     }
 
     private fun serveResource(socket: Socket, request: ProxyRequest) {
@@ -344,13 +376,25 @@ class HlsProxyServer @Inject constructor(
     }
 
     private fun localIpv4Address(): String? {
-        return NetworkInterface.getNetworkInterfaces()
-            .asSequence()
-            .filter { it.isUp && !it.isLoopback }
-            .flatMap { it.inetAddresses.asSequence() }
-            .filterIsInstance<Inet4Address>()
-            .firstOrNull { !it.isLoopbackAddress }
-            ?.hostAddress
+        return runCatching {
+            NetworkInterface.getNetworkInterfaces()
+                .asSequence()
+                .filter { it.isUp && !it.isLoopback }
+                .sortedBy { networkInterface ->
+                    val name = networkInterface.name.lowercase(Locale.US)
+                    if (name.startsWith("wlan") || name.startsWith("eth")) 0 else 1
+                }
+                .flatMap { it.inetAddresses.asSequence() }
+                .filterIsInstance<Inet4Address>()
+                .firstOrNull { !it.isLoopbackAddress }
+                ?.hostAddress
+        }.getOrNull()
+    }
+
+    private fun Throwable.isClientDisconnect(): Boolean {
+        val message = message.orEmpty().lowercase(Locale.US)
+        return this is java.net.SocketException &&
+            (message.contains("broken pipe") || message.contains("connection reset") || message.contains("socket closed"))
     }
 
     private data class ProxyRequest(
@@ -360,6 +404,11 @@ class HlsProxyServer @Inject constructor(
         val headers: Map<String, String>,
         val target: HlsProxyTarget
     )
+
+    private sealed interface UpstreamManifestResult {
+        data class Succeeded(val playlist: String) : UpstreamManifestResult
+        data class Failed(val statusCode: Int) : UpstreamManifestResult
+    }
 
     private data class ByteRange(
         val start: Long,

@@ -5,6 +5,7 @@ import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -29,6 +30,12 @@ class HlsPersistentCache @Inject constructor(
     fun isCached(url: String): Boolean {
         val file = dataFile(url)
         return file.exists() && file.length() > 0L
+    }
+
+    fun cachedText(url: String): String? {
+        val file = dataFile(url)
+        if (!file.exists() || file.length() <= 0L) return null
+        return runCatching { file.readText(Charsets.UTF_8) }.getOrNull()
     }
 
     fun write(url: String, contentType: String?, writer: (OutputStream) -> Unit): CachedResource {
@@ -85,6 +92,12 @@ class HlsPersistentCache @Inject constructor(
         )
     }
 
+    fun writeText(url: String, contentType: String?, text: String): CachedResource {
+        return write(url, contentType) { output ->
+            output.write(text.toByteArray(Charsets.UTF_8))
+        }
+    }
+
     fun guessContentType(url: String): String {
         val lower = url.substringBefore('?').lowercase()
         return when {
@@ -127,7 +140,7 @@ class HlsPersistentCache @Inject constructor(
     }
 
     private fun tempFile(targetFile: File): File {
-        return File(rootDir, "${targetFile.name}.${Thread.currentThread().id}.${System.nanoTime()}.tmp")
+        return File(rootDir, "${targetFile.name}.${System.nanoTime()}.${TEMP_FILE_COUNTER.incrementAndGet()}.tmp")
     }
 
     private fun writeContentType(url: String, contentType: String) {
@@ -176,6 +189,7 @@ class HlsPersistentCache @Inject constructor(
     private companion object {
         private const val DATA_SUFFIX = ".data"
         private const val META_SUFFIX = ".meta"
+        private val TEMP_FILE_COUNTER = AtomicLong()
         private val DEV_NULL_OUTPUT_STREAM = object : OutputStream() {
             override fun write(b: Int) = Unit
         }

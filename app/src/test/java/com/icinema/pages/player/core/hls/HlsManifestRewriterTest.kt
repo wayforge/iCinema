@@ -93,4 +93,24 @@ class HlsManifestRewriterTest {
             result.prefetchUrls
         )
     }
+
+    @Test
+    fun `uses cached ad urls to filter repeated ad segments`() {
+        val playlist = """
+            #EXTM3U
+            #EXTINF:6.0,
+            ad_break_001.ts
+            #EXTINF:6.0,
+            content_001.ts
+        """.trimIndent()
+
+        val result = rewriter.rewrite(
+            playlistUrl = "https://origin.example.com/live/index.m3u8",
+            playlist = playlist,
+            knownAdResourceUrls = setOf("https://origin.example.com/live/ad_break_001.ts")
+        ) { url, type -> "$type:$url" }
+
+        assertFalse(result.playlist.contains("ad_break_001.ts"))
+        assertTrue(result.playlist.contains("content_001.ts"))
+    }
 }
