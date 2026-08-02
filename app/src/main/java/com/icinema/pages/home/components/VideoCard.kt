@@ -13,10 +13,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Share
@@ -97,16 +95,8 @@ internal fun VideoCard(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.PlayArrow,
-                        contentDescription = null,
-                        modifier = Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                    )
-                }
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                )
             }
 
             Box(
@@ -123,39 +113,6 @@ internal fun VideoCard(
                         )
                     )
             )
-
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(48.dp),
-                shape = RoundedCornerShape(24.dp),
-                color = Color.Black.copy(alpha = 0.5f)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.PlayArrow,
-                    contentDescription = "播放",
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(8.dp),
-                    tint = Color.White.copy(alpha = 0.9f)
-                )
-            }
-
-            Surface(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(8.dp),
-                shape = RoundedCornerShape(6.dp),
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
-            ) {
-                Text(
-                    text = "播放",
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.White,
-                    fontWeight = FontWeight.Medium
-                )
-            }
 
             Column(
                 modifier = Modifier
