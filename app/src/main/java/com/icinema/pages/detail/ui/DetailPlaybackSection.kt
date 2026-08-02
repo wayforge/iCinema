@@ -1,28 +1,28 @@
 package com.icinema.pages.detail.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -30,12 +30,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun DetailPlaybackSection(
-    playGroups: List<Pair<String, List<Pair<String, String>>>>,
     currentSource: String?,
     currentEpisodes: List<Pair<String, String>>,
     totalRanges: Int,
@@ -44,51 +44,52 @@ internal fun DetailPlaybackSection(
     rangeEpisodes: List<Pair<String, String>>,
     startIndex: Int,
     selectedEpisode: Int,
-    onSelectPlaySource: (String) -> Unit,
     onSelectRange: (Int) -> Unit,
     onSelectEpisode: (Int) -> Unit,
     onCopyEpisodeLink: (label: String, url: String) -> Unit,
     onCastEpisode: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp
     ) {
-        SectionTitle(
-            text = "播放",
-            subtitle = if (currentEpisodes.isEmpty()) "当前视频没有可用播放源" else "${currentEpisodes.size} 集可播放"
-        )
-
-        if (playGroups.isEmpty()) {
-            EmptyPlaybackMessage()
-        } else {
-            PlaySourceRow(
-                playGroups = playGroups,
-                currentSource = currentSource,
-                onSelectPlaySource = onSelectPlaySource
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            SectionTitle(
+                text = "选集",
+                subtitle = playbackSubtitle(
+                    currentSource = currentSource,
+                    episodeCount = currentEpisodes.size
+                )
             )
 
-            if (totalRanges > 1) {
-                EpisodeRangeSelector(
-                    totalRanges = totalRanges,
-                    rangeSize = rangeSize,
-                    currentEpisodesCount = currentEpisodes.size,
-                    clampedRange = clampedRange,
-                    onSelectRange = onSelectRange
+            if (currentEpisodes.isEmpty()) {
+                EmptyPlaybackMessage()
+            } else {
+                if (totalRanges > 1) {
+                    EpisodeRangeSelector(
+                        totalRanges = totalRanges,
+                        rangeSize = rangeSize,
+                        currentEpisodesCount = currentEpisodes.size,
+                        clampedRange = clampedRange,
+                        onSelectRange = onSelectRange
+                    )
+                }
+
+                EpisodeGrid(
+                    rangeEpisodes = rangeEpisodes,
+                    startIndex = startIndex,
+                    selectedEpisode = selectedEpisode,
+                    onSelectEpisode = onSelectEpisode,
+                    onCopyEpisodeLink = onCopyEpisodeLink,
+                    onCastEpisode = onCastEpisode
                 )
             }
-
-            EpisodeGrid(
-                rangeEpisodes = rangeEpisodes,
-                startIndex = startIndex,
-                selectedEpisode = selectedEpisode,
-                onSelectEpisode = onSelectEpisode,
-                onCopyEpisodeLink = onCopyEpisodeLink,
-                onCastEpisode = onCastEpisode
-            )
         }
     }
 }
@@ -120,44 +121,6 @@ private fun EmptyPlaybackMessage() {
     }
 }
 
-@Composable
-private fun PlaySourceRow(
-    playGroups: List<Pair<String, List<Pair<String, String>>>>,
-    currentSource: String?,
-    onSelectPlaySource: (String) -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        PlaybackSubHeader(
-            icon = Icons.Filled.LiveTv,
-            title = "播放源"
-        )
-
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            itemsIndexed(
-                items = playGroups,
-                key = { _, item -> item.first }
-            ) { index, (source, episodes) ->
-                FilterChip(
-                    selected = source == currentSource,
-                    onClick = { onSelectPlaySource(source) },
-                    label = { Text(source.ifBlank { "来源 ${index + 1}" }) },
-                    trailingIcon = {
-                        Text(
-                            text = episodes.size.toString(),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
-                        selectedLabelColor = MaterialTheme.colorScheme.primary
-                    )
-                )
-            }
-        }
-    }
-}
-
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun EpisodeRangeSelector(
@@ -165,17 +128,21 @@ private fun EpisodeRangeSelector(
     rangeSize: Int,
     currentEpisodesCount: Int,
     clampedRange: Int,
-    onSelectRange: (Int) -> Unit
+    onSelectRange: (Int) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
         PlaybackSubHeader(
             icon = Icons.Filled.GridView,
             title = "分段"
         )
 
         FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             repeat(totalRanges) { rangeIndex ->
                 val start = rangeIndex * rangeSize + 1
@@ -185,8 +152,8 @@ private fun EpisodeRangeSelector(
                     onClick = { onSelectRange(rangeIndex) },
                     label = { Text("$start-$end") },
                     colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.16f),
-                        selectedLabelColor = MaterialTheme.colorScheme.secondary
+                        selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+                        selectedLabelColor = MaterialTheme.colorScheme.primary
                     )
                 )
             }
@@ -202,29 +169,41 @@ private fun EpisodeGrid(
     selectedEpisode: Int,
     onSelectEpisode: (Int) -> Unit,
     onCopyEpisodeLink: (label: String, url: String) -> Unit,
-    onCastEpisode: (Int) -> Unit
+    onCastEpisode: (Int) -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
         PlaybackSubHeader(
             icon = Icons.Filled.GridView,
-            title = "选集"
+            title = "剧集"
         )
 
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            rangeEpisodes.forEachIndexed { localIndex, episode ->
-                val actualIndex = startIndex + localIndex
-                val label = episode.first.ifBlank { "第${actualIndex + 1}集" }
-                EpisodeActionTag(
-                    label = label,
-                    isSelected = actualIndex == selectedEpisode,
-                    canCast = episode.second.contains("m3u8", ignoreCase = true),
-                    onPlayClick = { onSelectEpisode(actualIndex) },
-                    onCopyLink = { onCopyEpisodeLink(label, episode.second) },
-                    onCastClick = { onCastEpisode(actualIndex) }
-                )
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            rangeEpisodes.chunked(2).forEachIndexed { rowIndex, rowEpisodes ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    rowEpisodes.forEachIndexed { columnIndex, episode ->
+                        val actualIndex = startIndex + rowIndex * 2 + columnIndex
+                        val label = episode.first.ifBlank { "第${actualIndex + 1}集" }
+                        EpisodeActionTag(
+                            label = label,
+                            isSelected = actualIndex == selectedEpisode,
+                            canCast = episode.second.contains("m3u8", ignoreCase = true),
+                            onPlayClick = { onSelectEpisode(actualIndex) },
+                            onCopyLink = { onCopyEpisodeLink(label, episode.second) },
+                            onCastClick = { onCastEpisode(actualIndex) },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    repeat(2 - rowEpisodes.size) {
+                        Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
             }
         }
     }
@@ -242,69 +221,88 @@ private fun EpisodeActionTag(
     modifier: Modifier = Modifier
 ) {
     Surface(
-        modifier = modifier.widthIn(min = 108.dp, max = 164.dp),
+        modifier = modifier
+            .combinedClickable(
+                onClickLabel = "播放 $label",
+                onLongClickLabel = "复制 $label 链接",
+                onClick = onPlayClick,
+                onLongClick = onCopyLink
+            ),
         shape = RoundedCornerShape(8.dp),
         color = if (isSelected) {
             MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
         } else {
             MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+        },
+        contentColor = if (isSelected) {
+            MaterialTheme.colorScheme.primary
+        } else {
+            MaterialTheme.colorScheme.onSurface
         }
     ) {
         Row(
             modifier = Modifier
-                .defaultMinSize(minHeight = 44.dp)
-                .padding(start = 8.dp, end = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .fillMaxWidth()
+                .height(40.dp)
+                .padding(start = 8.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Surface(
+            Text(
+                text = label,
                 modifier = Modifier
                     .weight(1f)
-                    .combinedClickable(
-                        onClickLabel = "播放 $label",
-                        onLongClickLabel = "复制 $label 链接",
-                        onClick = onPlayClick,
-                        onLongClick = onCopyLink
-                    ),
-                color = androidx.compose.ui.graphics.Color.Transparent,
-                contentColor = if (isSelected) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                }
-            ) {
-                Row(
-                    modifier = Modifier
-                        .defaultMinSize(minHeight = 40.dp)
-                        .padding(horizontal = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.LiveTv,
-                        contentDescription = null,
-                        modifier = Modifier.size(15.dp)
-                    )
-                    Text(
-                        text = label,
-                        style = MaterialTheme.typography.labelLarge,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                    )
-                }
-            }
-            IconButton(
+                    .basicMarquee(iterations = Int.MAX_VALUE),
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            EpisodeIconAction(
+                contentDescription = "播放 $label",
+                onClick = onPlayClick,
+                enabled = true,
+                isSelected = isSelected,
+                icon = Icons.Filled.PlayArrow
+            )
+            EpisodeIconAction(
+                contentDescription = "投屏 $label",
+                onClick = onCastClick,
                 enabled = canCast,
-                onClick = onCastClick
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Cast,
-                    contentDescription = "投屏 $label",
-                    modifier = Modifier.size(18.dp)
-                )
-            }
+                isSelected = isSelected,
+                icon = Icons.Filled.Cast
+            )
         }
     }
+}
+
+@Composable
+private fun EpisodeIconAction(
+    contentDescription: String,
+    onClick: () -> Unit,
+    enabled: Boolean,
+    isSelected: Boolean,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    modifier: Modifier = Modifier
+) {
+    val tint = when {
+        !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.36f)
+        isSelected -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Icon(
+        imageVector = icon,
+        contentDescription = contentDescription,
+        modifier = modifier
+            .size(32.dp)
+            .clickable(
+                enabled = enabled,
+                onClickLabel = contentDescription,
+                onClick = onClick
+            )
+            .padding(7.dp),
+        tint = tint
+    )
 }
 
 @Composable
@@ -331,4 +329,13 @@ private fun PlaybackSubHeader(
             color = MaterialTheme.colorScheme.onSurface
         )
     }
+}
+
+private fun playbackSubtitle(
+    currentSource: String?,
+    episodeCount: Int
+): String {
+    if (episodeCount <= 0) return "当前视频没有可用播放源"
+    val source = currentSource?.takeIf { it.isNotBlank() }
+    return listOfNotNull(source, "$episodeCount 集可播放").joinToString(" · ")
 }

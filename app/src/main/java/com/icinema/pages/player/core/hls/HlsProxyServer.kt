@@ -15,6 +15,7 @@ import java.net.URLEncoder
 import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.roundToLong
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -90,7 +91,8 @@ class HlsProxyServer @Inject constructor(
                     "已标记当前广告片段"
                 } else {
                     "已标记广告，并生成同类片段过滤规则"
-                }
+                },
+                segmentEndPositionMs = target.endPositionMs(playbackPositionMs)
             )
         }
     }
@@ -468,6 +470,7 @@ class HlsProxyServer @Inject constructor(
             return ResolvedAdCandidate(
                 url = resolved.segment.url,
                 playlistUrl = resolved.playlistUrl,
+                startSeconds = resolved.segment.startSeconds,
                 durationSeconds = resolved.segment.durationSeconds
             )
         }
@@ -487,6 +490,7 @@ class HlsProxyServer @Inject constructor(
         return ResolvedAdCandidate(
             url = target?.url ?: recent.url,
             playlistUrl = recent.playlistUrl,
+            startSeconds = target?.startSeconds,
             durationSeconds = target?.durationSeconds
         )
     }
@@ -535,8 +539,19 @@ class HlsProxyServer @Inject constructor(
     private data class ResolvedAdCandidate(
         val url: String,
         val playlistUrl: String,
+        val startSeconds: Double?,
         val durationSeconds: Double?
-    )
+    ) {
+        fun endPositionMs(fallbackPositionMs: Long): Long? {
+            val duration = durationSeconds ?: return null
+            val start = startSeconds
+            return if (start != null) {
+                ((start + duration) * 1000).roundToLong()
+            } else {
+                fallbackPositionMs + (duration * 1000).roundToLong()
+            }
+        }
+    }
 
     private sealed interface UpstreamManifestResult {
         data class Succeeded(val playlist: String) : UpstreamManifestResult

@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import com.icinema.cast.ui.CastDeviceSheetContent
 import com.icinema.cast.ui.CastMiniController
 import com.icinema.pages.detail.DetailContract
+import com.icinema.pages.detail.DETAIL_EPISODE_RANGE_SIZE
 import com.icinema.pages.detail.preview.detailPreviewState
 import com.icinema.pages.widgets.ErrorScreen
 import com.icinema.pages.widgets.LoadingScreen
@@ -181,11 +182,7 @@ private fun DetailSuccessContent(
     val playGroups = video.playGroups.filter { it.second.isNotEmpty() }
     val currentSource = state.selectedPlaySource ?: playGroups.firstOrNull()?.first
     val currentEpisodes = playGroups.firstOrNull { it.first == currentSource }?.second.orEmpty()
-    val rangeSize = when {
-        currentEpisodes.size > 100 -> 30
-        currentEpisodes.size > 40 -> 20
-        else -> 12
-    }
+    val rangeSize = DETAIL_EPISODE_RANGE_SIZE
     val totalRanges = if (currentEpisodes.isEmpty()) 0 else (currentEpisodes.size + rangeSize - 1) / rangeSize
     val clampedRange = state.selectedRange.coerceIn(0, (totalRanges - 1).coerceAtLeast(0))
     val startIndex = clampedRange * rangeSize
@@ -201,20 +198,24 @@ private fun DetailSuccessContent(
         item(key = "hero") {
             DetailHeroSection(
                 video = video,
+                playGroups = playGroups,
                 currentSource = currentSource,
                 selectedEpisode = selectedEpisode,
                 episodeCount = currentEpisodes.size,
-                onPlayClick = {
+                onSelectPlaySource = { source ->
+                    onIntent(DetailContract.UiIntent.SelectPlaySource(source))
+                },
+                onOpenCurrentEpisode = {
                     if (currentSource != null) {
                         onOpenPlayer(currentSource, state.selectedEpisode)
                     }
-                }
+                },
+                modifier = Modifier.padding(start = 16.dp, top = 12.dp, end = 16.dp)
             )
         }
 
         item(key = "playback") {
             DetailPlaybackSection(
-                playGroups = playGroups,
                 currentSource = currentSource,
                 currentEpisodes = currentEpisodes,
                 totalRanges = totalRanges,
@@ -223,9 +224,6 @@ private fun DetailSuccessContent(
                 rangeEpisodes = rangeEpisodes,
                 startIndex = startIndex,
                 selectedEpisode = state.selectedEpisode,
-                onSelectPlaySource = { source ->
-                    onIntent(DetailContract.UiIntent.SelectPlaySource(source))
-                },
                 onSelectRange = { range ->
                     onIntent(DetailContract.UiIntent.SelectRange(range))
                 },
@@ -239,14 +237,6 @@ private fun DetailSuccessContent(
                         onIntent(DetailContract.UiIntent.OpenCastFlow(source, episode))
                     }
                 },
-                modifier = Modifier.padding(horizontal = 16.dp)
-            )
-        }
-
-        item(key = "description") {
-            DetailDescriptionSection(
-                video = video,
-                description = video.content,
                 modifier = Modifier.padding(horizontal = 16.dp)
             )
         }

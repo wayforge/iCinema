@@ -48,11 +48,25 @@ Guide schema: compose-builder-v2
 - Grid: home video cards use `GridCells.Fixed(3)` with `VideoCard` and `VideoCardSkeleton`.
 - Mixed View/Compose: player feature only.
 
+## Compose Rule Surfaces
+- State/effects: feature contracts expose immutable `UiState` and `UiIntent`; avoid changing ViewModels or reducers for local visual-only work.
+- Component API: feature-local pure UI sections usually live under `pages/<feature>/ui` with one root `modifier`.
+- Modifier/layout: Material3 `Surface`, `Card`, `FilterChip`, `LazyColumn`, `LazyRow`, `FlowRow`, and local section composables are common.
+- Performance/lazy identity: lazy rows/grids generally provide keys when item identity matters; keep heavy display mapping outside repeated item lambdas when practical.
+- Accessibility/semantics: Material controls carry most semantics; custom clickable episode tags need explicit labels for play/copy/cast actions.
+- Preview fixtures: detail and home keep reusable preview state in `pages/<feature>/preview`; same-file `@Preview` is common for pure content.
+
+## File Organization
+- Feature package pattern: business screens are grouped by feature under `pages`; detail/player place feature-specific Compose UI in `pages/<feature>/ui`.
+- Preview fixtures: colocated under `pages/<feature>/preview` when reused by content previews.
+- Flat package exceptions: Activity, Contract, Reducer, ViewModel, DI binding, and BizPort stay in the feature package root.
+
 ## Before Coding Checklist
-- Keep home work inside `app/src/main/java/com/icinema/pages/home` unless a verified shared rule requires otherwise.
+- Keep detail UI work inside `app/src/main/java/com/icinema/pages/detail/ui` unless a verified shared rule requires otherwise.
+- Avoid redesigning `DetailContract`, `DetailViewModel`, reducers, repositories, navigation, or cast flow for visual-only changes.
 - Prefer lifecycle-aware Flow collection for Android screen wrappers when touching state collection.
-- Keep image assets bound to existing remote URLs; do not fake missing poster artwork.
-- Add previews for materially changed pure UI surfaces when practical.
+- Keep poster images bound to existing remote URLs and existing drawable placeholders.
+- Add or preserve previews for materially changed pure UI surfaces when practical.
 - Preserve user-visible Chinese copy unless the change explicitly targets content.
 
 ## Legacy or Conflict Notes

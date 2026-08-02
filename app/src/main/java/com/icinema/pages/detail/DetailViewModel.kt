@@ -249,7 +249,7 @@ class DetailViewModel @Inject constructor(
             return PreferredSelection(
                 sourceKey = defaultSource.key,
                 episodeIndex = defaultEpisode.index,
-                rangeIndex = calculateRangeIndex(defaultSource.episodes.size, defaultEpisode.index),
+                rangeIndex = calculateRangeIndex(defaultEpisode.index),
                 restoredByFallback = false
             )
         }
@@ -258,7 +258,7 @@ class DetailViewModel @Inject constructor(
             ?: return PreferredSelection(
                 sourceKey = defaultSource.key,
                 episodeIndex = defaultEpisode.index,
-                rangeIndex = calculateRangeIndex(defaultSource.episodes.size, defaultEpisode.index),
+                rangeIndex = calculateRangeIndex(defaultEpisode.index),
                 restoredByFallback = true
             )
 
@@ -269,7 +269,7 @@ class DetailViewModel @Inject constructor(
             return PreferredSelection(
                 sourceKey = matchedSource.key,
                 episodeIndex = fallbackEpisode.index,
-                rangeIndex = calculateRangeIndex(matchedSource.episodes.size, fallbackEpisode.index),
+                rangeIndex = calculateRangeIndex(fallbackEpisode.index),
                 restoredByFallback = true
             )
         }
@@ -280,7 +280,7 @@ class DetailViewModel @Inject constructor(
                 return PreferredSelection(
                     sourceKey = matchedSource.key,
                     episodeIndex = nextEpisode.index,
-                    rangeIndex = calculateRangeIndex(matchedSource.episodes.size, nextEpisode.index),
+                    rangeIndex = calculateRangeIndex(nextEpisode.index),
                     restoredByFallback = false
                 )
             }
@@ -289,18 +289,13 @@ class DetailViewModel @Inject constructor(
         return PreferredSelection(
             sourceKey = matchedSource.key,
             episodeIndex = targetEpisode.index,
-            rangeIndex = calculateRangeIndex(matchedSource.episodes.size, targetEpisode.index),
+            rangeIndex = calculateRangeIndex(targetEpisode.index),
             restoredByFallback = false
         )
     }
 
-    private fun calculateRangeIndex(totalEpisodes: Int, episodeIndex: Int): Int {
-        val rangeSize = when {
-            totalEpisodes > 100 -> 30
-            totalEpisodes > 40 -> 20
-            else -> 12
-        }
-        return (episodeIndex.coerceAtLeast(0)) / rangeSize
+    private fun calculateRangeIndex(episodeIndex: Int): Int {
+        return (episodeIndex.coerceAtLeast(0)) / DETAIL_EPISODE_RANGE_SIZE
     }
 
     private fun commit(mutation: DetailContract.Mutation) {

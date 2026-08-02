@@ -3,7 +3,6 @@ package com.icinema.pages.player.core.hls
 import android.content.Context
 import com.google.gson.Gson
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.net.URI
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -23,11 +22,11 @@ class HlsAdRuleStore @Inject constructor(
     }
 
     fun matchingAdUrls(playlistUrl: String, segmentUrls: List<String>): Set<String> {
-        val rules = loadRules().filter { it.appliesToPlaylist(playlistUrl) }
+        val rules = loadRules().filter { HlsAdRuleMatcher.appliesToPlaylist(it, playlistUrl) }
         if (rules.isEmpty()) return emptySet()
 
         return segmentUrls.filterTo(linkedSetOf()) { segmentUrl ->
-            rules.any { rule -> rule.matches(segmentUrl) }
+            rules.any { rule -> HlsAdRuleMatcher.matches(rule, segmentUrl) }
         }
     }
 
@@ -77,19 +76,6 @@ class HlsAdRuleStore @Inject constructor(
         synchronized(lock) {
             prefs.edit().remove(KEY_RULES).apply()
         }
-    }
-
-    private fun HlsAdRule.appliesToPlaylist(candidatePlaylistUrl: String): Boolean {
-        if (playlistUrl == candidatePlaylistUrl) return true
-        return runCatching {
-            URI(playlistUrl).host == URI(candidatePlaylistUrl).host
-        }.getOrDefault(false)
-    }
-
-    private fun HlsAdRule.matches(candidateSegmentUrl: String): Boolean {
-        if (segmentUrl == candidateSegmentUrl) return true
-        val pattern = urlPattern ?: return false
-        return runCatching { Regex(pattern).matches(candidateSegmentUrl) }.getOrDefault(false)
     }
 
     private fun buildConservativePattern(segmentUrl: String): String? {

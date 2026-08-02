@@ -27,6 +27,8 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+private const val MARKED_AD_SKIP_OFFSET_MS = 250L
+
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     @ApplicationContext context: Context,
@@ -413,10 +415,12 @@ class PlayerViewModel @Inject constructor(
         }
 
         commit(PlayerContract.Mutation.ErrorChanged(null))
+        val playbackUrl = runCatching { hlsSessionManager.playbackUrl(episode.url) }
+            .getOrElse { episode.url }
         player.stop()
         player.setMediaItem(
             MediaItem.Builder()
-                .setUri(episode.url)
+                .setUri(playbackUrl)
                 .setMimeType(MimeTypes.APPLICATION_M3U8)
                 .build()
         )
@@ -512,16 +516,49 @@ class PlayerViewModel @Inject constructor(
             return
         }
         viewModelScope.launch {
+            val playbackPositionMs = if (state.castState.isCasting) {
+                state.currentPositionMs
+            } else {
+                player.currentPosition.coerceAtLeast(state.currentPositionMs)
+            }
             hlsSessionManager.markCurrentSegmentAsAd(
                 originUrl = episode.url,
-                playbackPositionMs = player.currentPosition.coerceAtLeast(state.currentPositionMs),
+                playbackPositionMs = playbackPositionMs,
                 videoTitle = state.video?.name.orEmpty(),
                 episodeTitle = episode.title
-            ).onSuccess { message ->
-                emitEffect(PlayerContract.UiEffect.ShowMessage(message))
+            ).onSuccess { markedSegment ->
+                skipMarkedAdSegment(
+                    episodeUrl = episode.url,
+                    segmentEndPositionMs = markedSegment.segmentEndPositionMs
+                )
+                emitEffect(PlayerContract.UiEffect.ShowMessage(markedSegment.message))
             }.onFailure { error ->
                 emitEffect(PlayerContract.UiEffect.ShowMessage(error.message ?: "广告标记失败"))
             }
+        }
+    }
+
+    private fun skipMarkedAdSegment(
+        episodeUrl: String,
+        segmentEndPositionMs: Long?
+    ) {
+        val targetPositionMs = segmentEndPositionMs
+            ?.plus(MARKED_AD_SKIP_OFFSET_MS)
+            ?: return
+        val state = _uiState.value
+        if (state.currentEpisode?.url != episodeUrl) return
+
+        if (state.castState.isCasting) {
+            seekCastTo(targetPositionMs)
+        } else {
+            val durationMs = player.duration.takeIf { it > 0 } ?: state.durationMs
+            val boundedPositionMs = if (durationMs > 0) {
+                targetPositionMs.coerceAtMost(durationMs)
+            } else {
+                targetPositionMs
+            }
+            player.seekTo(boundedPositionMs)
+            updatePlaybackPosition()
         }
     }
 

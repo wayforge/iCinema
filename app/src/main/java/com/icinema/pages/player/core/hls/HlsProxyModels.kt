@@ -41,5 +41,6 @@ data class HlsAdRule(
 
 data class MarkedHlsAdSegment(
     val rule: HlsAdRule,
-    val message: String
+    val message: String,
+    val segmentEndPositionMs: Long?
 )

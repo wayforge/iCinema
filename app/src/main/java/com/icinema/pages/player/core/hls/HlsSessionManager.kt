@@ -37,14 +37,12 @@ class HlsSessionManager @Inject constructor(
         playbackPositionMs: Long,
         videoTitle: String,
         episodeTitle: String
-    ): Result<String> {
+    ): Result<MarkedHlsAdSegment> {
         return proxyServer.markCurrentSegmentAsAd(
             originUrl = originUrl,
             playbackPositionMs = playbackPositionMs,
             videoTitle = videoTitle,
             episodeTitle = episodeTitle
-        ).onSuccess { segment ->
-            prefetchCoordinator.prefetchResources(listOf(segment.rule.segmentUrl))
-        }.map { it.message }
+        )
     }
 }
