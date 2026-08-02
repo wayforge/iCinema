@@ -12,6 +12,7 @@ object HomeContract {
 
     data class VideoSectionState(
         val isLoading: Boolean = false,
+        val isBackgroundLoading: Boolean = false,
         val isRefreshing: Boolean = false,
         val isLoadingMore: Boolean = false,
         val videos: List<Video> = emptyList(),
@@ -25,12 +26,11 @@ object HomeContract {
         val query: String = "",
         val isSearching: Boolean = false,
         val hasSearched: Boolean = false,
-        val results: VideoSectionState = VideoSectionState(),
-        val shouldShowRefreshIndicator: Boolean = false
+        val results: VideoSectionState = VideoSectionState()
     )
 
     data class UiState(
-        val discoverState: VideoSectionState = VideoSectionState(),
+        val discoverStates: Map<Int?, VideoSectionState> = mapOf(null to VideoSectionState()),
         val searchState: SearchSectionState = SearchSectionState(),
         val categories: List<Category> = emptyList(),
         val visibleCategories: List<Category> = emptyList(),
@@ -42,7 +42,10 @@ object HomeContract {
         val hotKeywords: List<String> = emptyList(),
         val recommendedVideos: List<Video> = emptyList(),
         val sortMode: SortMode = SortMode.Latest
-    )
+    ) {
+        val discoverState: VideoSectionState
+            get() = discoverStates[selectedCategoryId] ?: VideoSectionState()
+    }
 
     sealed interface UiIntent {
         data class LoadDiscoverVideos(
@@ -53,12 +56,12 @@ object HomeContract {
 
         data object LoadMoreDiscover : UiIntent
         data object RefreshDiscover : UiIntent
-        data object RestoreDiscover : UiIntent
+        data class LoadMoreDiscoverCategory(val categoryId: Int?) : UiIntent
+        data class RefreshDiscoverCategory(val categoryId: Int?) : UiIntent
         data class SelectCategory(val categoryId: Int?) : UiIntent
         data class Search(val keyword: String) : UiIntent
         data object LoadMoreSearch : UiIntent
         data object RefreshSearch : UiIntent
-        data object RestoreSearch : UiIntent
         data object ClearSearch : UiIntent
         data object LoadContinueWatching : UiIntent
         data object LoadSearchSuggestions : UiIntent
@@ -99,13 +102,15 @@ object HomeContract {
             val categoryId: Int?
         ) : Mutation
 
-        data class DiscoverLoadFailed(val message: String) : Mutation
+        data class DiscoverLoadFailed(
+            val message: String,
+            val categoryId: Int?
+        ) : Mutation
         data class SearchInputChanged(val input: String) : Mutation
         data class SearchLoadStarted(
             val page: Int,
             val query: String,
-            val isRefresh: Boolean = false,
-            val showRefreshIndicator: Boolean = false
+            val isRefresh: Boolean = false
         ) : Mutation
 
         data class SearchLoadSucceeded(
@@ -115,7 +120,6 @@ object HomeContract {
         ) : Mutation
 
         data class SearchLoadFailed(val message: String) : Mutation
-        data class SearchRefreshIndicatorChanged(val visible: Boolean) : Mutation
         data object SearchCleared : Mutation
         data class CategoryChanged(val categoryId: Int?) : Mutation
         data class VisibleCategoriesUpdated(

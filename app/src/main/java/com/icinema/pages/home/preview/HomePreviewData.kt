@@ -23,9 +23,11 @@ internal object HomePreviewData {
     )
 
     val uiState = HomeContract.UiState(
-        discoverState = HomeContract.VideoSectionState(
-            videos = videos,
-            hasMorePages = true
+        discoverStates = mapOf(
+            null to HomeContract.VideoSectionState(
+                videos = videos,
+                hasMorePages = true
+            )
         ),
         searchState = HomeContract.SearchSectionState(
             input = "城市",

@@ -19,6 +19,7 @@ import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -38,6 +39,7 @@ import kotlinx.coroutines.launch
 internal fun VideoGrid(
     videos: List<Video>,
     isLoading: Boolean,
+    isBackgroundLoading: Boolean,
     isRefreshing: Boolean,
     isLoadingMore: Boolean,
     error: String?,
@@ -198,12 +200,23 @@ internal fun VideoGrid(
                 modifier = Modifier.align(Alignment.TopCenter)
             )
         }
+
+        if (isBackgroundLoading && videos.isNotEmpty()) {
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth(),
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+            )
+        }
     }
 
     LaunchedEffect(
         gridState,
         videos.size,
         isLoading,
+        isBackgroundLoading,
         isLoadingMore,
         hasMorePages
     ) {
@@ -217,6 +230,7 @@ internal fun VideoGrid(
                 totalItems > 0 &&
                 lastVisible >= totalItems - 4 &&
                 !isLoading &&
+                !isBackgroundLoading &&
                 !isLoadingMore &&
                 hasMorePages
             ) {

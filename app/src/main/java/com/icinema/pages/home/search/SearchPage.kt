@@ -88,7 +88,8 @@ internal fun SearchPage(
             VideoGrid(
                 videos = searchResults.videos,
                 isLoading = searchResults.isLoading,
-                isRefreshing = searchResults.isRefreshing || searchState.shouldShowRefreshIndicator,
+                isBackgroundLoading = searchResults.isBackgroundLoading,
+                isRefreshing = searchResults.isRefreshing,
                 isLoadingMore = searchResults.isLoadingMore,
                 error = searchResults.error,
                 hasMorePages = searchResults.hasMorePages,

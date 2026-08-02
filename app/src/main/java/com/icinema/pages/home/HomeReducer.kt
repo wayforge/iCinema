@@ -13,48 +13,60 @@ class HomeReducer @Inject constructor() {
             }
 
             is HomeContract.Mutation.DiscoverLoadStarted -> {
+                val currentSection = current.discoverStates[mutation.categoryId]
+                    ?: HomeContract.VideoSectionState()
+                val hasCachedVideos = currentSection.videos.isNotEmpty()
+                val nextSection = currentSection.copy(
+                    isLoading = mutation.page == 1 && !mutation.isRefresh && !hasCachedVideos,
+                    isBackgroundLoading = mutation.page == 1 && !mutation.isRefresh && hasCachedVideos,
+                    isRefreshing = mutation.isRefresh,
+                    isLoadingMore = mutation.page > 1,
+                    error = null,
+                    currentPage = if (mutation.page > 1) currentSection.currentPage else 1,
+                    hasMorePages = if (mutation.page == 1) true else currentSection.hasMorePages
+                )
                 current.copy(
-                    discoverState = current.discoverState.copy(
-                        isLoading = mutation.page == 1 && !mutation.isRefresh,
-                        isRefreshing = mutation.isRefresh,
-                        isLoadingMore = mutation.page > 1,
-                        error = null,
-                        currentPage = if (mutation.page > 1) current.discoverState.currentPage else 1,
-                        hasMorePages = if (mutation.page == 1) true else current.discoverState.hasMorePages
-                    ),
+                    discoverStates = current.discoverStates + (mutation.categoryId to nextSection),
                     selectedCategoryId = mutation.categoryId
                 )
             }
 
             is HomeContract.Mutation.DiscoverLoadSucceeded -> {
+                val currentSection = current.discoverStates[mutation.categoryId]
+                    ?: HomeContract.VideoSectionState()
                 val mergedVideos = if (mutation.page > 1) {
-                    val existingIds = current.discoverState.videos.map { it.id }.toSet()
-                    current.discoverState.videos + mutation.videos.filter { it.id !in existingIds }
+                    val existingIds = currentSection.videos.map { it.id }.toSet()
+                    currentSection.videos + mutation.videos.filter { it.id !in existingIds }
                 } else {
                     mutation.videos
                 }
+                val nextSection = currentSection.copy(
+                    isLoading = false,
+                    isBackgroundLoading = false,
+                    isRefreshing = false,
+                    isLoadingMore = false,
+                    videos = mergedVideos,
+                    error = null,
+                    currentPage = mutation.page,
+                    hasMorePages = mutation.videos.isNotEmpty()
+                )
                 current.copy(
-                    discoverState = current.discoverState.copy(
-                        isLoading = false,
-                        isRefreshing = false,
-                        isLoadingMore = false,
-                        videos = mergedVideos,
-                        error = null,
-                        currentPage = mutation.page,
-                        hasMorePages = mutation.videos.isNotEmpty()
-                    ),
-                    selectedCategoryId = mutation.categoryId
+                    discoverStates = current.discoverStates + (mutation.categoryId to nextSection)
                 )
             }
 
             is HomeContract.Mutation.DiscoverLoadFailed -> {
+                val currentSection = current.discoverStates[mutation.categoryId]
+                    ?: HomeContract.VideoSectionState()
+                val nextSection = currentSection.copy(
+                    isLoading = false,
+                    isBackgroundLoading = false,
+                    isRefreshing = false,
+                    isLoadingMore = false,
+                    error = mutation.message
+                )
                 current.copy(
-                    discoverState = current.discoverState.copy(
-                        isLoading = false,
-                        isRefreshing = false,
-                        isLoadingMore = false,
-                        error = mutation.message
-                    )
+                    discoverStates = current.discoverStates + (mutation.categoryId to nextSection)
                 )
             }
 
@@ -71,10 +83,10 @@ class HomeReducer @Inject constructor() {
                         query = mutation.query,
                         isSearching = true,
                         hasSearched = mutation.query.isNotBlank(),
-                        shouldShowRefreshIndicator = mutation.showRefreshIndicator,
                         results = current.searchState.results.copy(
                             isLoading = mutation.page == 1 && !mutation.isRefresh,
-                            isRefreshing = mutation.isRefresh || mutation.showRefreshIndicator,
+                            isBackgroundLoading = false,
+                            isRefreshing = mutation.isRefresh,
                             isLoadingMore = mutation.page > 1,
                             error = null,
                             currentPage = if (mutation.page > 1) current.searchState.results.currentPage else 1,
@@ -97,9 +109,9 @@ class HomeReducer @Inject constructor() {
                         query = mutation.query,
                         isSearching = false,
                         hasSearched = mutation.query.isNotBlank(),
-                        shouldShowRefreshIndicator = false,
                         results = current.searchState.results.copy(
                             isLoading = false,
+                            isBackgroundLoading = false,
                             isRefreshing = false,
                             isLoadingMore = false,
                             videos = mergedVideos,
@@ -115,22 +127,13 @@ class HomeReducer @Inject constructor() {
                 current.copy(
                     searchState = current.searchState.copy(
                         isSearching = false,
-                        shouldShowRefreshIndicator = false,
                         results = current.searchState.results.copy(
                             isLoading = false,
+                            isBackgroundLoading = false,
                             isRefreshing = false,
                             isLoadingMore = false,
                             error = mutation.message
                         )
-                    )
-                )
-            }
-
-            is HomeContract.Mutation.SearchRefreshIndicatorChanged -> {
-                current.copy(
-                    searchState = current.searchState.copy(
-                        shouldShowRefreshIndicator = mutation.visible,
-                        results = current.searchState.results.copy(isRefreshing = mutation.visible)
                     )
                 )
             }
@@ -144,13 +147,29 @@ class HomeReducer @Inject constructor() {
             }
 
             is HomeContract.Mutation.VisibleCategoriesUpdated -> {
+                val visibleIds = mutation.visibleCategories.map { it.id }.toSet()
                 val currentSelected = current.selectedCategoryId
-                val nextSelected = if (currentSelected != null && mutation.visibleCategories.none { it.id == currentSelected }) {
+                val nextSelected = if (currentSelected != null && currentSelected !in visibleIds) {
                     null
                 } else {
                     currentSelected
                 }
+                val nextDiscoverStates = buildMap<Int?, HomeContract.VideoSectionState> {
+                    current.discoverStates.forEach { (categoryId, section) ->
+                        if (categoryId == null || categoryId in visibleIds) {
+                            put(categoryId, section)
+                        }
+                    }
+                }
+                val resolvedDiscoverStates = if (nextDiscoverStates.isEmpty()) {
+                    mapOf<Int?, HomeContract.VideoSectionState>(
+                        null to HomeContract.VideoSectionState()
+                    )
+                } else {
+                    nextDiscoverStates
+                }
                 current.copy(
+                    discoverStates = resolvedDiscoverStates,
                     visibleCategories = mutation.visibleCategories,
                     selectedCategoryIds = mutation.selectedCategoryIds,
                     selectedCategoryId = nextSelected

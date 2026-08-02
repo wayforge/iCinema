@@ -2,6 +2,7 @@ package com.icinema.pages.home
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -19,10 +20,10 @@ internal fun HomeShell(
     selectedTab: HomeTab,
     snackbarHostState: SnackbarHostState,
     onTabSelected: (HomeTab) -> Unit,
-    onRetryDiscover: () -> Unit,
+    onRetryDiscover: (Int?) -> Unit,
     onRetrySearch: () -> Unit,
     onVideoClick: (Long) -> Unit,
-    onRefreshDiscover: () -> Unit,
+    onRefreshDiscover: (Int?) -> Unit,
     onRefreshSearch: () -> Unit,
     onCategorySelected: (Int?) -> Unit,
     onSearch: (String) -> Unit,
@@ -35,13 +36,14 @@ internal fun HomeShell(
     onOpenFavorite: () -> Unit,
     onContinueWatchingClick: (Long, String, Int) -> Unit,
     onSortChange: (HomeContract.SortMode) -> Unit,
-    onLoadMoreDiscover: () -> Unit,
+    onLoadMoreDiscover: (Int?) -> Unit,
     onLoadMoreSearch: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Scaffold(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         containerColor = MaterialTheme.colorScheme.surface,
+        contentWindowInsets = WindowInsets(0),
         bottomBar = {
             HomeBottomNavigation(
                 selectedTab = selectedTab,

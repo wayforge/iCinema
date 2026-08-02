@@ -30,14 +30,16 @@ fun HomeScreen(
         onTabSelected = { tab ->
             if (tab != selectedTab) {
                 selectedTabName = tab.name
-                when (tab) {
-                    HomeTab.Discover -> viewModel.handleIntent(HomeContract.UiIntent.RestoreDiscover)
-                    HomeTab.Search -> viewModel.handleIntent(HomeContract.UiIntent.RestoreSearch)
-                    HomeTab.Mine -> viewModel.refreshMineTab()
-                }
             }
         },
-        onRetryDiscover = { viewModel.handleIntent(HomeContract.UiIntent.RefreshDiscover) },
+        onRetryDiscover = { categoryId ->
+            viewModel.handleIntent(
+                HomeContract.UiIntent.LoadDiscoverVideos(
+                    page = 1,
+                    categoryId = categoryId
+                )
+            )
+        },
         onRetrySearch = {
             val query = state.searchState.query
             if (query.isNotBlank()) {
@@ -45,7 +47,9 @@ fun HomeScreen(
             }
         },
         onVideoClick = onVideoClick,
-        onRefreshDiscover = { viewModel.handleIntent(HomeContract.UiIntent.RefreshDiscover) },
+        onRefreshDiscover = { categoryId ->
+            viewModel.handleIntent(HomeContract.UiIntent.RefreshDiscoverCategory(categoryId))
+        },
         onRefreshSearch = { viewModel.handleIntent(HomeContract.UiIntent.RefreshSearch) },
         onCategorySelected = { categoryId ->
             viewModel.handleIntent(HomeContract.UiIntent.SelectCategory(categoryId))
@@ -72,7 +76,9 @@ fun HomeScreen(
         onSortChange = { sortMode ->
             viewModel.handleIntent(HomeContract.UiIntent.ChangeSort(sortMode))
         },
-        onLoadMoreDiscover = { viewModel.handleIntent(HomeContract.UiIntent.LoadMoreDiscover) },
+        onLoadMoreDiscover = { categoryId ->
+            viewModel.handleIntent(HomeContract.UiIntent.LoadMoreDiscoverCategory(categoryId))
+        },
         onLoadMoreSearch = { viewModel.handleIntent(HomeContract.UiIntent.LoadMoreSearch) }
     )
 }
