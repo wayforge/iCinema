@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player as Media3Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -11,6 +12,7 @@ import com.icinema.cast.CastController
 import com.icinema.cast.CastMedia
 import com.icinema.pages.player.core.PlaybackMediaSourceFactory
 import com.icinema.pages.player.core.PlayerPreloadCoordinator
+import com.icinema.pages.player.core.hls.HlsSessionManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -32,6 +34,7 @@ class PlayerViewModel @Inject constructor(
     private val reducer: PlayerReducer,
     private val playbackMediaSourceFactory: PlaybackMediaSourceFactory,
     private val preloadCoordinator: PlayerPreloadCoordinator,
+    private val hlsSessionManager: HlsSessionManager,
     private val castController: CastController
 ) : ViewModel() {
 
@@ -385,8 +388,21 @@ class PlayerViewModel @Inject constructor(
         }
 
         commit(PlayerContract.Mutation.ErrorChanged(null))
+        val playbackUrl = runCatching { hlsSessionManager.playbackUrl(episode.url) }
+            .getOrElse { error ->
+                val message = error.message ?: "播放代理启动失败"
+                commit(PlayerContract.Mutation.ErrorChanged(message))
+                emitEffect(PlayerContract.UiEffect.ShowMessage(message))
+                return
+            }
         player.stop()
-        player.setMediaItem(MediaItem.fromUri(episode.url))
+        player.setMediaItem(
+            MediaItem.Builder()
+                .setUri(playbackUrl)
+                .setMimeType(MimeTypes.APPLICATION_M3U8)
+                .build()
+        )
+        hlsSessionManager.prefetch(episode.url)
         player.prepare()
         if ((seekPositionMs ?: 0L) > 0L) {
             player.seekTo(seekPositionMs ?: 0L)
@@ -597,8 +613,9 @@ class PlayerViewModel @Inject constructor(
         val state = _uiState.value
         val episode = state.currentEpisode ?: return null
         if (!episode.isHls) return null
+        val castUrl = runCatching { hlsSessionManager.castUrl(episode.url) }.getOrNull() ?: return null
         return CastMedia(
-            url = episode.url,
+            url = castUrl,
             title = listOfNotNull(
                 state.video?.name?.takeIf { it.isNotBlank() },
                 episode.title.takeIf { it.isNotBlank() }

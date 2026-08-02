@@ -1,9 +1,6 @@
 package com.icinema.pages.player.core
 
 import android.content.Context
-import androidx.media3.database.StandaloneDatabaseProvider
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
-import androidx.media3.datasource.cache.SimpleCache
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
 import javax.inject.Inject
@@ -13,22 +10,13 @@ import javax.inject.Singleton
 class PlaybackCacheManager @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    private val databaseProvider by lazy { StandaloneDatabaseProvider(context) }
-    private val cacheDir by lazy { File(context.cacheDir, "media3") }
-
-    val cache: SimpleCache by lazy {
-        if (!cacheDir.exists()) {
-            cacheDir.mkdirs()
-        }
-
-        SimpleCache(
-            cacheDir,
-            LeastRecentlyUsedCacheEvictor(MAX_CACHE_BYTES),
-            databaseProvider
-        )
+    val hlsCacheDir: File by lazy {
+        File(context.noBackupFilesDir, "hls-proxy")
     }
 
+    val maxCacheBytes: Long = MAX_CACHE_BYTES
+
     companion object {
-        private const val MAX_CACHE_BYTES = 1_500L * 1024L * 1024L
+        private const val MAX_CACHE_BYTES = 3_000L * 1024L * 1024L
     }
 }

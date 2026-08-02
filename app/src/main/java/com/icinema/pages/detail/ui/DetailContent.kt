@@ -24,8 +24,11 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -36,6 +39,7 @@ import com.icinema.pages.detail.preview.detailPreviewState
 import com.icinema.pages.widgets.ErrorScreen
 import com.icinema.pages.widgets.LoadingScreen
 import com.icinema.ui.theme.iCinemaTheme
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,6 +50,9 @@ fun DetailContent(
     onOpenPlayer: (sourceKey: String?, episodeIndex: Int) -> Unit,
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() }
 ) {
+    val clipboardManager = LocalClipboardManager.current
+    val coroutineScope = rememberCoroutineScope()
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -112,6 +119,12 @@ fun DetailContent(
                     DetailSuccessContent(
                         state = state,
                         onIntent = onIntent,
+                        onCopyEpisodeLink = { label, url ->
+                            clipboardManager.setText(AnnotatedString(url))
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar("已复制 $label 链接")
+                            }
+                        },
                         onOpenPlayer = onOpenPlayer,
                         modifier = Modifier.fillMaxSize()
                     )
@@ -160,6 +173,7 @@ fun DetailContent(
 private fun DetailSuccessContent(
     state: DetailContract.UiState,
     onIntent: (DetailContract.UiIntent) -> Unit,
+    onCopyEpisodeLink: (String, String) -> Unit,
     onOpenPlayer: (sourceKey: String?, episodeIndex: Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -219,6 +233,7 @@ private fun DetailSuccessContent(
                     onIntent(DetailContract.UiIntent.SelectEpisode(episode))
                     onOpenPlayer(currentSource, episode)
                 },
+                onCopyEpisodeLink = onCopyEpisodeLink,
                 onCastEpisode = { episode ->
                     currentSource?.let { source ->
                         onIntent(DetailContract.UiIntent.OpenCastFlow(source, episode))

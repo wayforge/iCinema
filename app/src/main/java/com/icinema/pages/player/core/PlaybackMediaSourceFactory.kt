@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -13,8 +12,7 @@ import javax.inject.Singleton
 
 @Singleton
 class PlaybackMediaSourceFactory @Inject constructor(
-    @ApplicationContext private val context: Context,
-    private val cacheManager: PlaybackCacheManager
+    @ApplicationContext private val context: Context
 ) {
     fun createDataSourceFactory(): DataSource.Factory {
         val upstreamFactory = DefaultHttpDataSource.Factory()
@@ -22,10 +20,7 @@ class PlaybackMediaSourceFactory @Inject constructor(
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(30_000)
 
-        return CacheDataSource.Factory()
-            .setCache(cacheManager.cache)
-            .setUpstreamDataSourceFactory(DefaultDataSource.Factory(context, upstreamFactory))
-            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        return DefaultDataSource.Factory(context, upstreamFactory)
     }
 
     fun createMediaSourceFactory(): MediaSource.Factory {

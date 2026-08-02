@@ -7,6 +7,7 @@ import com.icinema.cast.CastMedia
 import com.icinema.domain.model.PlayableEpisode
 import com.icinema.domain.model.Video
 import com.icinema.domain.model.WatchHistoryItem
+import com.icinema.pages.player.core.hls.HlsSessionManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -22,7 +23,8 @@ import kotlinx.coroutines.launch
 class DetailViewModel @Inject constructor(
     private val bizPort: DetailBizPort,
     private val reducer: DetailReducer,
-    private val castController: CastController
+    private val castController: CastController,
+    private val hlsSessionManager: HlsSessionManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(DetailContract.UiState())
@@ -316,9 +318,10 @@ class DetailViewModel @Inject constructor(
             ?: source.episodes.getOrNull(episodeIndex)
             ?: return null
         if (!episode.isHls) return null
+        val castUrl = runCatching { hlsSessionManager.castUrl(episode.url) }.getOrNull() ?: return null
 
         return CastMedia(
-            url = episode.url,
+            url = castUrl,
             title = buildCastTitle(video, episode),
             subtitle = source.key,
             imageUrl = video.picThumb?.takeIf { it.isNotBlank() }

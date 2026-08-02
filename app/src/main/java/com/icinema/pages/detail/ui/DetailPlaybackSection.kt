@@ -1,5 +1,7 @@
 package com.icinema.pages.detail.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.defaultMinSize
@@ -45,6 +47,7 @@ internal fun DetailPlaybackSection(
     onSelectPlaySource: (String) -> Unit,
     onSelectRange: (Int) -> Unit,
     onSelectEpisode: (Int) -> Unit,
+    onCopyEpisodeLink: (label: String, url: String) -> Unit,
     onCastEpisode: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -83,6 +86,7 @@ internal fun DetailPlaybackSection(
                 startIndex = startIndex,
                 selectedEpisode = selectedEpisode,
                 onSelectEpisode = onSelectEpisode,
+                onCopyEpisodeLink = onCopyEpisodeLink,
                 onCastEpisode = onCastEpisode
             )
         }
@@ -197,6 +201,7 @@ private fun EpisodeGrid(
     startIndex: Int,
     selectedEpisode: Int,
     onSelectEpisode: (Int) -> Unit,
+    onCopyEpisodeLink: (label: String, url: String) -> Unit,
     onCastEpisode: (Int) -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -211,11 +216,13 @@ private fun EpisodeGrid(
         ) {
             rangeEpisodes.forEachIndexed { localIndex, episode ->
                 val actualIndex = startIndex + localIndex
+                val label = episode.first.ifBlank { "第${actualIndex + 1}集" }
                 EpisodeActionTag(
-                    label = episode.first.ifBlank { "第${actualIndex + 1}集" },
+                    label = label,
                     isSelected = actualIndex == selectedEpisode,
                     canCast = episode.second.contains("m3u8", ignoreCase = true),
                     onPlayClick = { onSelectEpisode(actualIndex) },
+                    onCopyLink = { onCopyEpisodeLink(label, episode.second) },
                     onCastClick = { onCastEpisode(actualIndex) }
                 )
             }
@@ -223,12 +230,14 @@ private fun EpisodeGrid(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun EpisodeActionTag(
     label: String,
     isSelected: Boolean,
     canCast: Boolean,
     onPlayClick: () -> Unit,
+    onCopyLink: () -> Unit,
     onCastClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -249,8 +258,14 @@ private fun EpisodeActionTag(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
-                onClick = onPlayClick,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .combinedClickable(
+                        onClickLabel = "播放 $label",
+                        onLongClickLabel = "复制 $label 链接",
+                        onClick = onPlayClick,
+                        onLongClick = onCopyLink
+                    ),
                 color = androidx.compose.ui.graphics.Color.Transparent,
                 contentColor = if (isSelected) {
                     MaterialTheme.colorScheme.primary

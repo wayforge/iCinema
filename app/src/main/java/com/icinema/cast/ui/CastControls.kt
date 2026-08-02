@@ -1,6 +1,7 @@
 package com.icinema.cast.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,20 +18,28 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -47,6 +56,7 @@ import com.icinema.ui.theme.iCinemaTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CastMiniControllerHost(
     modifier: Modifier = Modifier,
@@ -54,6 +64,8 @@ fun CastMiniControllerHost(
     viewModel: CastOverlayViewModel = viewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val visible = state.isCasting || state.isConnecting
+    var expanded by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(state.isCasting) {
         while (isActive && state.isCasting) {
@@ -62,19 +74,40 @@ fun CastMiniControllerHost(
         }
     }
 
+    LaunchedEffect(visible) {
+        if (!visible) {
+            expanded = false
+        }
+    }
+
     Box(modifier = modifier) {
         AnimatedVisibility(
-            visible = state.isCasting || state.isConnecting,
+            visible = visible,
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
             CastMiniController(
                 state = state,
                 onTogglePlayPause = viewModel::togglePlayPause,
                 onStopCasting = viewModel::stopCasting,
+                onOpenDetails = { expanded = true },
                 modifier = Modifier
                     .navigationBarsPadding()
                     .padding(horizontal = 12.dp)
                     .padding(bottom = bottomPadding)
+            )
+        }
+    }
+
+    if (expanded && visible) {
+        ModalBottomSheet(
+            onDismissRequest = { expanded = false }
+        ) {
+            CastExpandedControllerPanel(
+                state = state,
+                onTogglePlayPause = viewModel::togglePlayPause,
+                onRefreshPlaybackPosition = viewModel::refreshPlaybackPosition,
+                onStopCasting = viewModel::stopCasting,
+                modifier = Modifier.navigationBarsPadding()
             )
         }
     }
@@ -85,17 +118,26 @@ fun CastMiniController(
     state: CastState,
     onTogglePlayPause: () -> Unit,
     onStopCasting: () -> Unit,
+    onOpenDetails: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val deviceName = state.connectedDevice?.name.orEmpty()
-    val title = state.currentMediaTitle.ifBlank { "正在投屏" }
-    val subtitle = listOf(deviceName, state.currentMediaSubtitle)
-        .filter { it.isNotBlank() }
-        .joinToString(" · ")
-        .ifBlank { "已连接投屏设备" }
+    val title = castTitle(state)
+    val subtitle = castSubtitle(state, includeHint = onOpenDetails != null)
 
     Surface(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .then(
+                if (onOpenDetails != null) {
+                    Modifier.clickable(
+                        onClickLabel = "展开投屏控制",
+                        onClick = onOpenDetails
+                    )
+                } else {
+                    Modifier
+                }
+            ),
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 6.dp,
@@ -144,14 +186,28 @@ fun CastMiniController(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+                if (state.isConnecting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        strokeWidth = 2.dp
+                    )
+                }
                 IconButton(
-                    enabled = !state.isConnecting,
+                    enabled = state.isCasting && !state.isConnecting,
                     onClick = onTogglePlayPause
                 ) {
                     Icon(
                         imageVector = if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                         contentDescription = if (state.isPlaying) "暂停投屏" else "继续投屏"
                     )
+                }
+                if (onOpenDetails != null) {
+                    IconButton(onClick = onOpenDetails) {
+                        Icon(
+                            imageVector = Icons.Filled.ExpandLess,
+                            contentDescription = "展开投屏控制"
+                        )
+                    }
                 }
                 IconButton(onClick = onStopCasting) {
                     Icon(
@@ -160,6 +216,156 @@ fun CastMiniController(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun CastExpandedControllerPanel(
+    state: CastState,
+    onTogglePlayPause: () -> Unit,
+    onRefreshPlaybackPosition: () -> Unit,
+    onStopCasting: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 18.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.CastConnected,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text(
+                    text = castTitle(state),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = castSubtitle(state, includeHint = false),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        CastProgressBlock(state = state)
+
+        state.errorMessage?.let { message ->
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.72f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
+                )
+            }
+        }
+
+        HorizontalDivider()
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Button(
+                enabled = state.isCasting && !state.isConnecting,
+                onClick = onTogglePlayPause,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(
+                    imageVector = if (state.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(if (state.isPlaying) "暂停" else "继续")
+            }
+            TextButton(
+                enabled = state.isCasting && !state.isConnecting,
+                onClick = onRefreshPlaybackPosition
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Refresh,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text("刷新进度")
+            }
+            TextButton(onClick = onStopCasting) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text("断开")
+            }
+        }
+    }
+}
+
+@Composable
+private fun CastProgressBlock(
+    state: CastState
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (state.durationMs > 0L) {
+            LinearProgressIndicator(
+                progress = {
+                    state.currentPositionMs
+                        .coerceIn(0L, state.durationMs)
+                        .toFloat() / state.durationMs.toFloat()
+                },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = formatCastTime(state.currentPositionMs),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = formatCastTime(state.durationMs),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            Text(
+                text = if (state.isConnecting) "正在连接设备..." else "正在同步投屏进度",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -324,6 +530,46 @@ private fun CastDeviceRow(
     }
 }
 
+private fun castTitle(state: CastState): String {
+    return when {
+        state.isConnecting -> "正在连接投屏设备"
+        state.currentMediaTitle.isNotBlank() -> state.currentMediaTitle
+        state.errorMessage != null -> "投屏异常"
+        else -> "正在投屏"
+    }
+}
+
+private fun castSubtitle(state: CastState, includeHint: Boolean): String {
+    val deviceName = state.connectedDevice?.name.orEmpty()
+    val status = when {
+        state.isConnecting -> "连接中"
+        state.isPlaying -> "播放中"
+        state.isCasting -> "已暂停"
+        else -> "准备投屏"
+    }
+    return listOf(
+        deviceName,
+        state.currentMediaSubtitle,
+        status,
+        if (includeHint) "点按展开" else ""
+    )
+        .filter { it.isNotBlank() }
+        .joinToString(" · ")
+        .ifBlank { if (includeHint) "点按展开投屏控制" else "已连接投屏设备" }
+}
+
+private fun formatCastTime(positionMs: Long): String {
+    val totalSeconds = (positionMs / 1_000L).coerceAtLeast(0L)
+    val hours = totalSeconds / 3_600L
+    val minutes = (totalSeconds % 3_600L) / 60L
+    val seconds = totalSeconds % 60L
+    return if (hours > 0L) {
+        "%d:%02d:%02d".format(hours, minutes, seconds)
+    } else {
+        "%d:%02d".format(minutes, seconds)
+    }
+}
+
 @Preview(showBackground = true, backgroundColor = 0xFF111111, widthDp = 412)
 @Composable
 private fun CastMiniControllerPreview() {
@@ -339,6 +585,28 @@ private fun CastMiniControllerPreview() {
                 durationMs = 1_800_000
             ),
             onTogglePlayPause = {},
+            onStopCasting = {},
+            onOpenDetails = {}
+        )
+    }
+}
+
+@Preview(showBackground = true, backgroundColor = 0xFF111111, widthDp = 412)
+@Composable
+private fun CastExpandedControllerPanelPreview() {
+    iCinemaTheme {
+        CastExpandedControllerPanel(
+            state = CastState(
+                connectedDevice = CastDevice("1", "投屏助手_MECO", "Xiaomi", "hyperDLNA"),
+                isCasting = true,
+                isPlaying = true,
+                currentMediaTitle = "无尽夜航 - 第 3 集",
+                currentMediaSubtitle = "main",
+                currentPositionMs = 320_000,
+                durationMs = 1_800_000
+            ),
+            onTogglePlayPause = {},
+            onRefreshPlaybackPosition = {},
             onStopCasting = {}
         )
     }
