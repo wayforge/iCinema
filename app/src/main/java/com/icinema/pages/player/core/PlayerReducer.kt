@@ -107,7 +107,10 @@ class PlayerReducer @Inject constructor() {
             }
 
             is PlayerContract.Mutation.ErrorChanged -> {
-                current.copy(error = mutation.message)
+                current.copy(
+                    error = mutation.message,
+                    errorDetail = mutation.detail
+                )
             }
 
             is PlayerContract.Mutation.ResumePositionChanged -> {

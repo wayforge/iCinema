@@ -1,6 +1,7 @@
 package com.icinema.pages.player.adfilter
 
 import androidx.lifecycle.ViewModel
+import com.icinema.pages.player.core.hls.HlsDetectedAdSegment
 import com.icinema.pages.player.core.hls.HlsAdRule
 import com.icinema.pages.player.core.hls.HlsAdRuleStore
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -31,6 +32,7 @@ class HlsAdFilterViewModel @Inject constructor(
             is HlsAdFilterContract.UiIntent.DeleteRule -> deleteRule(intent.ruleId)
             HlsAdFilterContract.UiIntent.ClearAll -> clearAll()
             is HlsAdFilterContract.UiIntent.PreviewRule -> previewRule(intent.ruleId)
+            is HlsAdFilterContract.UiIntent.PreviewDetectedSegment -> previewDetectedSegment(intent.segmentId)
             is HlsAdFilterContract.UiIntent.SaveRule -> saveRule(intent)
             is HlsAdFilterContract.UiIntent.ValidateRule -> validateRule(intent)
         }
@@ -38,7 +40,8 @@ class HlsAdFilterViewModel @Inject constructor(
 
     private fun loadRules() {
         _uiState.value = HlsAdFilterContract.UiState(
-            rules = adRuleStore.loadRules().map { it.toUiItem() }
+            rules = adRuleStore.loadRules().map { it.toUiItem() },
+            detectedSegments = adRuleStore.loadDetectedSegments().map { it.toUiItem() }
         )
     }
 
@@ -56,6 +59,11 @@ class HlsAdFilterViewModel @Inject constructor(
 
     private fun previewRule(ruleId: String) {
         val item = _uiState.value.rules.firstOrNull { it.id == ruleId } ?: return
+        emitEffect(HlsAdFilterContract.UiEffect.OpenPreview(item.segmentUrl, item.title))
+    }
+
+    private fun previewDetectedSegment(segmentId: String) {
+        val item = _uiState.value.detectedSegments.firstOrNull { it.id == segmentId } ?: return
         emitEffect(HlsAdFilterContract.UiEffect.OpenPreview(item.segmentUrl, item.title))
     }
 
@@ -80,7 +88,7 @@ class HlsAdFilterViewModel @Inject constructor(
             segmentUrl = intent.segmentUrl
         ).onSuccess { result ->
             val message = when {
-                result.matches -> "校验通过：该片段会被代理过滤"
+                result.matches -> "校验通过：播放时会识别为广告"
                 !result.playlistMatches -> "校验未通过：播放清单不匹配"
                 else -> "校验未通过：片段地址不匹配"
             }
@@ -107,11 +115,55 @@ class HlsAdFilterViewModel @Inject constructor(
             segmentUrl = segmentUrl,
             urlPattern = urlPattern,
             matchText = matchText.ifBlank { segmentUrl.substringAfterLast('/') },
-            matchType = if (urlPattern == null) "精确片段" else "同类片段",
+            matchType = when {
+                contentSha256 != null -> "内容指纹"
+                urlPattern == null -> "精确片段"
+                else -> "同类片段"
+            },
             createdAtText = DATE_FORMAT.format(Date(createdAtMs)),
             hitCount = hitCount,
             lastHitAtText = lastHitAtMs?.let { DATE_FORMAT.format(Date(it)) }
         )
+    }
+
+    private fun HlsDetectedAdSegment.toUiItem(): HlsAdFilterContract.DetectedSegmentItem {
+        val title = listOf(videoTitle, episodeTitle)
+            .filter { it.isNotBlank() }
+            .joinToString(" - ")
+            .ifBlank { "识别广告分片" }
+        val durationText = durationSeconds?.let { "约 ${"%.1f".format(Locale.US, it)} 秒" }
+        val hostText = playlistUrl.hostText()
+        val subtitle = listOfNotNull(detectedBy.takeIf { it.isNotBlank() }, durationText, hostText)
+            .joinToString(" / ")
+            .ifBlank { "广告 TS 分片" }
+        return HlsAdFilterContract.DetectedSegmentItem(
+            id = id,
+            title = title,
+            subtitle = subtitle,
+            segmentUrl = segmentUrl,
+            matchText = segmentUrl.substringBefore('?').substringAfterLast('/'),
+            timeRangeText = formatTimeRange(segmentStartPositionMs, segmentEndPositionMs),
+            detectedBy = detectedBy,
+            detectedCount = detectedCount,
+            lastDetectedAtText = DATE_FORMAT.format(Date(lastDetectedAtMs))
+        )
+    }
+
+    private fun formatTimeRange(startMs: Long?, endMs: Long?): String {
+        return when {
+            startMs != null && endMs != null -> "${formatDuration(startMs)} - ${formatDuration(endMs)}"
+            endMs != null -> "结束 ${formatDuration(endMs)}"
+            else -> "时间线待捕获"
+        }
+    }
+
+    private fun formatDuration(durationMs: Long): String {
+        val totalSeconds = (durationMs / 1000).coerceAtLeast(0L)
+        val hours = totalSeconds / 3600
+        val minutes = (totalSeconds % 3600) / 60
+        val seconds = totalSeconds % 60
+        return if (hours > 0) "%d:%02d:%02d".format(hours, minutes, seconds)
+        else "%02d:%02d".format(minutes, seconds)
     }
 
     private fun String.hostText(): String? {

@@ -14,8 +14,6 @@ class HlsManifestRewriter @Inject constructor() {
         val pendingSegmentTags = mutableListOf<String>()
         val prefetchUrls = linkedSetOf<String>()
         var nextUriIsVariant = false
-        var inAdBreak = false
-        var skipNextResource = false
 
         fun flushPendingSegmentTags() {
             if (pendingSegmentTags.isNotEmpty()) {
@@ -28,80 +26,49 @@ class HlsManifestRewriter @Inject constructor() {
             val line = rawLine.trim()
             when {
                 line.isBlank() -> {
-                    if (!inAdBreak) {
-                        flushPendingSegmentTags()
-                        output.add(rawLine)
-                    }
-                }
-
-                isAdBreakStart(line) -> {
-                    inAdBreak = true
-                    pendingSegmentTags.clear()
-                }
-
-                isAdBreakEnd(line) -> {
-                    inAdBreak = false
-                    pendingSegmentTags.clear()
-                }
-
-                isAdMarker(line) -> {
-                    pendingSegmentTags.clear()
-                    skipNextResource = true
+                    flushPendingSegmentTags()
+                    output.add(rawLine)
                 }
 
                 line.startsWith("#EXT-X-STREAM-INF", ignoreCase = true) -> {
-                    if (!inAdBreak) {
-                        flushPendingSegmentTags()
-                        output.add(rawLine)
-                        nextUriIsVariant = true
-                    }
+                    flushPendingSegmentTags()
+                    output.add(rawLine)
+                    nextUriIsVariant = true
                 }
 
                 line.startsWith("#EXT-X-I-FRAME-STREAM-INF", ignoreCase = true) -> {
-                    if (!inAdBreak) {
-                        flushPendingSegmentTags()
-                        output.add(rewriteUriAttribute(playlistUrl, rawLine, HlsProxyResourceType.Manifest, proxyUrlFactory).line)
-                    }
+                    flushPendingSegmentTags()
+                    output.add(rewriteUriAttribute(playlistUrl, rawLine, HlsProxyResourceType.Manifest, proxyUrlFactory).line)
                 }
 
                 line.startsWith("#EXT-X-MEDIA", ignoreCase = true) -> {
-                    if (!inAdBreak) {
-                        flushPendingSegmentTags()
-                        output.add(rewriteUriAttribute(playlistUrl, rawLine, HlsProxyResourceType.Manifest, proxyUrlFactory).line)
-                    }
+                    flushPendingSegmentTags()
+                    output.add(rewriteUriAttribute(playlistUrl, rawLine, HlsProxyResourceType.Manifest, proxyUrlFactory).line)
                 }
 
                 line.startsWith("#EXT-X-KEY", ignoreCase = true) ||
                     line.startsWith("#EXT-X-MAP", ignoreCase = true) -> {
-                    if (!inAdBreak) {
-                        val rewritten = rewriteUriAttribute(
-                            playlistUrl = playlistUrl,
-                            line = rawLine,
-                            resourceType = HlsProxyResourceType.Resource,
-                            proxyUrlFactory = proxyUrlFactory
-                        )
-                        rewritten.absoluteUrl?.let(prefetchUrls::add)
-                        pendingSegmentTags.add(rewritten.line)
-                    }
+                    val rewritten = rewriteUriAttribute(
+                        playlistUrl = playlistUrl,
+                        line = rawLine,
+                        resourceType = HlsProxyResourceType.Resource,
+                        proxyUrlFactory = proxyUrlFactory
+                    )
+                    rewritten.absoluteUrl?.let(prefetchUrls::add)
+                    pendingSegmentTags.add(rewritten.line)
                 }
 
                 line.startsWith("#EXT", ignoreCase = true) -> {
                     if (isSegmentScopedTag(line)) {
-                        if (!inAdBreak) {
-                            pendingSegmentTags.add(rawLine)
-                        } else {
-                            pendingSegmentTags.clear()
-                        }
-                    } else if (!inAdBreak) {
+                        pendingSegmentTags.add(rawLine)
+                    } else {
                         flushPendingSegmentTags()
                         output.add(rawLine)
                     }
                 }
 
                 line.startsWith("#") -> {
-                    if (!inAdBreak) {
-                        pendingSegmentTags.add(rawLine)
-                    }
+                    pendingSegmentTags.add(rawLine)
                 }
 
                 else -> {
@@ -114,14 +81,6 @@ class HlsManifestRewriter @Inject constructor() {
                     } else {
                         HlsProxyResourceType.Resource
                     }
-                    val shouldDropResource = resourceType == HlsProxyResourceType.Resource &&
-                        (inAdBreak || skipNextResource || absoluteUrl in knownAdResourceUrls || isLikelyAdResourceUrl(absoluteUrl))
-                    if (shouldDropResource) {
-                        pendingSegmentTags.clear()
-                        nextUriIsVariant = false
-                        skipNextResource = false
-                        return@forEach
-                    }
 
                     flushPendingSegmentTags()
                     output.add(proxyUrlFactory(absoluteUrl, resourceType))
@@ -129,7 +88,6 @@ class HlsManifestRewriter @Inject constructor() {
                         prefetchUrls.add(absoluteUrl)
                     }
                     nextUriIsVariant = false
-                    skipNextResource = false
                 }
             }
         }

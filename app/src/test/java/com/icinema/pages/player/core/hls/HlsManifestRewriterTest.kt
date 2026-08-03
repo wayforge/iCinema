@@ -1,7 +1,6 @@
 package com.icinema.pages.player.core.hls
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -61,7 +60,7 @@ class HlsManifestRewriterTest {
     }
 
     @Test
-    fun `removes cue out ad segments conservatively`() {
+    fun `preserves cue out ad segments for playback layer skipping`() {
         val playlist = """
             #EXTM3U
             #EXTINF:6.0,
@@ -83,11 +82,13 @@ class HlsManifestRewriterTest {
 
         assertTrue(result.playlist.contains("Resource:https://origin.example.com/vod/content-1.ts"))
         assertTrue(result.playlist.contains("Resource:https://origin.example.com/vod/content-2.ts"))
-        assertFalse(result.playlist.contains("ad-1.ts"))
-        assertFalse(result.playlist.contains("ad-2.ts"))
+        assertTrue(result.playlist.contains("Resource:https://origin.example.com/vod/ad-1.ts"))
+        assertTrue(result.playlist.contains("Resource:https://origin.example.com/vod/ad-2.ts"))
         assertEquals(
             listOf(
                 "https://origin.example.com/vod/content-1.ts",
+                "https://origin.example.com/vod/ad-1.ts",
+                "https://origin.example.com/vod/ad-2.ts",
                 "https://origin.example.com/vod/content-2.ts"
             ),
             result.prefetchUrls
@@ -95,7 +96,7 @@ class HlsManifestRewriterTest {
     }
 
     @Test
-    fun `uses cached ad urls to filter repeated ad segments`() {
+    fun `preserves known ad urls when rewriting manifest`() {
         val playlist = """
             #EXTM3U
             #EXTINF:6.0,
@@ -110,7 +111,7 @@ class HlsManifestRewriterTest {
             knownAdResourceUrls = setOf("https://origin.example.com/live/ad_break_001.ts")
         ) { url, type -> "$type:$url" }
 
-        assertFalse(result.playlist.contains("ad_break_001.ts"))
+        assertTrue(result.playlist.contains("Resource:https://origin.example.com/live/ad_break_001.ts"))
         assertTrue(result.playlist.contains("content_001.ts"))
     }
 }

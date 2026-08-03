@@ -16,8 +16,7 @@ import okhttp3.Request
 class HlsPrefetchCoordinator @Inject constructor(
     private val okHttpClient: OkHttpClient,
     private val cache: HlsPersistentCache,
-    private val manifestRewriter: HlsManifestRewriter,
-    private val adRuleStore: HlsAdRuleStore
+    private val manifestRewriter: HlsManifestRewriter
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val inFlight = Collections.synchronizedSet(mutableSetOf<String>())
@@ -51,12 +50,7 @@ class HlsPrefetchCoordinator @Inject constructor(
                             manifestResourcePrefetch[manifestUrl] == true
                         }
                         if (includeResources) {
-                            val mediaSegments = manifestRewriter.extractMediaSegments(manifestUrl, body)
-                            val knownAdUrls = buildSet {
-                                addAll(manifestRewriter.extractAdResourceUrls(manifestUrl, body))
-                                addAll(adRuleStore.matchingAdUrls(manifestUrl, mediaSegments.map { it.url }))
-                            }
-                            val result = manifestRewriter.rewrite(manifestUrl, body, knownAdUrls) { url, _ -> url }
+                            val result = manifestRewriter.rewrite(manifestUrl, body) { url, _ -> url }
                             prefetchResources(result.prefetchUrls.take(INITIAL_RESOURCE_PREFETCH_LIMIT))
                         }
                     }

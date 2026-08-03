@@ -190,6 +190,9 @@ private fun HlsAdFilterScreen(
                 showRuleEditor = true
             },
             onValidate = { validatingRule = it },
+            onPreviewDetectedSegment = {
+                viewModel.handleIntent(HlsAdFilterContract.UiIntent.PreviewDetectedSegment(it))
+            },
             onDelete = { viewModel.handleIntent(HlsAdFilterContract.UiIntent.DeleteRule(it)) },
             modifier = Modifier.padding(paddingValues)
         )
@@ -202,10 +205,11 @@ private fun HlsAdFilterContent(
     onPreview: (String) -> Unit,
     onEdit: (HlsAdFilterContract.AdRuleItem) -> Unit,
     onValidate: (HlsAdFilterContract.AdRuleItem) -> Unit,
+    onPreviewDetectedSegment: (String) -> Unit,
     onDelete: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    if (state.rules.isEmpty()) {
+    if (state.rules.isEmpty() && state.detectedSegments.isEmpty()) {
         Column(
             modifier = modifier
                 .fillMaxSize()
@@ -237,6 +241,32 @@ private fun HlsAdFilterContent(
         item {
             BuiltInAdFilterRulesCard()
         }
+        if (state.detectedSegments.isNotEmpty()) {
+            item {
+                Text(
+                    text = "最近识别广告分片",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+                )
+            }
+            items(state.detectedSegments, key = { it.id }) { item ->
+                DetectedAdSegmentCard(
+                    item = item,
+                    onPreview = { onPreviewDetectedSegment(item.id) }
+                )
+            }
+            if (state.rules.isNotEmpty()) {
+                item {
+                    Text(
+                        text = "广告规则",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
+                    )
+                }
+            }
+        }
         items(state.rules, key = { it.id }) { item ->
             HlsAdRuleCard(
                 item = item,
@@ -257,17 +287,81 @@ private fun BuiltInAdFilterRulesCard(modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
-                text = "内置自动过滤（只读）",
+                text = "内置候选识别（只读）",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = "• CUE-OUT / CUE-IN、SCTE-35 等 HLS 广告标签\n" +
-                    "• 带广告标识的 DATERANGE 标签\n" +
-                    "• URL 中的 ad、vast、vmap、preroll、sponsor 等关键词",
+                text = "• 代理层保留原始 m3u8，不再删除分片\n" +
+                    "• 当前仅识别并提示，不自动跳过播放内容\n" +
+                    "• 帧、指纹、URL 等证据命中后，归类对象是整个 TS 分片",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+@Composable
+private fun DetectedAdSegmentCard(
+    item: HlsAdFilterContract.DetectedSegmentItem,
+    onPreview: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = item.title,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = item.subtitle,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Text(
+                    text = item.detectedBy.ifBlank { "规则" },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            Text(
+                text = item.matchText,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = "整段 TS：${item.timeRangeText}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = "已识别 ${item.detectedCount} 次 / 最近识别 ${item.lastDetectedAtText}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onPreview) {
+                    Text("播放分片")
+                }
+            }
         }
     }
 }
@@ -327,8 +421,8 @@ private fun HlsAdRuleCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                text = "规则命中 ${item.hitCount} 个片段" +
-                    (item.lastHitAtText?.let { " / 最近命中 $it" }.orEmpty()),
+                text = "播放层已识别 ${item.hitCount} 次" +
+                    (item.lastHitAtText?.let { " / 最近识别 $it" }.orEmpty()),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -366,7 +460,7 @@ private fun HlsAdRuleEditorDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "规则只对匹配的播放清单生效；修改匹配条件会重置命中统计。",
+                    text = "规则只对匹配的播放清单生效；命中后仅提示识别结果，代理层不会删除 m3u8 分片。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -421,7 +515,7 @@ private fun HlsAdRuleValidationDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "使用代理的同一匹配逻辑校验这组 URL 是否会被过滤。",
+                    text = "校验这组 URL 是否会命中播放层识别规则。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -477,6 +571,7 @@ private fun HlsAdFilterContentPreview() {
             onPreview = {},
             onEdit = {},
             onValidate = {},
+            onPreviewDetectedSegment = {},
             onDelete = {}
         )
     }

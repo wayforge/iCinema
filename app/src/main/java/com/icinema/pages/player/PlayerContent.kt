@@ -52,6 +52,7 @@ fun PlayerContent(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
+        paddingValues
         if (state.isLoading && state.video == null) {
             PlayerLoadingState(modifier = Modifier.padding(paddingValues))
             return@Scaffold
@@ -64,8 +65,7 @@ fun PlayerContent(
             onBackClick = onBackClick,
             onIntent = onIntent,
             onOpenSources = { onIntent(PlayerContract.UiIntent.OpenSheet(PlayerContract.SheetMode.Sources)) },
-            onOpenEpisodes = { onIntent(PlayerContract.UiIntent.OpenSheet(PlayerContract.SheetMode.Episodes)) },
-            modifier = Modifier.padding(paddingValues)
+            onOpenEpisodes = { onIntent(PlayerContract.UiIntent.OpenSheet(PlayerContract.SheetMode.Episodes)) }
         )
     }
 }

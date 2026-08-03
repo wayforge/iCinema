@@ -90,6 +90,7 @@ class HlsProxyServer @Inject constructor(
                 playlistUrl = target.playlistUrl,
                 segmentUrl = target.url,
                 durationSeconds = target.durationSeconds,
+                contentFingerprint = cache.contentFingerprint(target.url),
                 videoTitle = videoTitle,
                 episodeTitle = episodeTitle
             )
@@ -103,6 +104,29 @@ class HlsProxyServer @Inject constructor(
                 segmentEndPositionMs = target.endPositionMs(playbackPositionMs)
             )
         }
+    }
+
+    fun resolveAdDetectionCandidate(
+        originUrl: String,
+        playbackPositionMs: Long,
+        recordHit: Boolean = false
+    ): HlsAdDetectionCandidate? {
+        val target = resolveCurrentResource(originUrl, playbackPositionMs) ?: return null
+        val contentFingerprint = cache.contentFingerprint(target.url)
+        val rule = adRuleStore.matchingAdRules(
+            playlistUrl = target.playlistUrl,
+            segmentUrl = target.url,
+            contentFingerprint = contentFingerprint,
+            recordHits = recordHit
+        ).firstOrNull() ?: return null
+        return HlsAdDetectionCandidate(
+            rule = rule,
+            playlistUrl = target.playlistUrl,
+            segmentUrl = target.url,
+            segmentStartPositionMs = target.startPositionMs(),
+            segmentEndPositionMs = target.endPositionMs(playbackPositionMs),
+            contentFingerprint = contentFingerprint
+        )
     }
 
     private fun ensureStarted() {
@@ -207,19 +231,7 @@ class HlsProxyServer @Inject constructor(
         }
         prefetchCoordinator.recordManifestSnapshot(originUrl, playlist)
         val target = request.target
-        val mediaSegments = manifestRewriter.extractMediaSegments(originUrl, playlist)
-        val knownAdUrls = buildSet {
-            cachedPlaylist?.let { addAll(manifestRewriter.extractAdResourceUrls(originUrl, it)) }
-            addAll(manifestRewriter.extractAdResourceUrls(originUrl, playlist))
-            addAll(
-                adRuleStore.matchingAdUrls(
-                    playlistUrl = originUrl,
-                    segmentUrls = mediaSegments.map { it.url },
-                    recordHits = true
-                )
-            )
-        }
-        val rewritten = manifestRewriter.rewrite(originUrl, playlist, knownAdUrls) { url, type ->
+        val rewritten = manifestRewriter.rewrite(originUrl, playlist) { url, type ->
             proxyUrl(
                 originUrl = url,
                 type = type,
@@ -589,6 +601,10 @@ class HlsProxyServer @Inject constructor(
         val startSeconds: Double?,
         val durationSeconds: Double?
     ) {
+        fun startPositionMs(): Long? {
+            return startSeconds?.let { (it * 1000).roundToLong() }
+        }
+
         fun endPositionMs(fallbackPositionMs: Long): Long? {
             val duration = durationSeconds ?: return null
             val start = startSeconds

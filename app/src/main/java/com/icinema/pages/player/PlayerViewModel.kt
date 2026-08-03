@@ -27,7 +27,9 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-private const val MARKED_AD_SKIP_OFFSET_MS = 250L
+private const val AD_DETECTION_CHECK_INTERVAL_MS = 1_000L
+private const val PROGRESS_SAVE_INTERVAL_TICKS = 5
+private const val AD_DETECTION_DEDUP_WINDOW_MS = 10_000L
 
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
@@ -53,9 +55,10 @@ class PlayerViewModel @Inject constructor(
     private var progressJob: Job? = null
     private var castDiscoveryJob: Job? = null
     private var castProgressJob: Job? = null
-    private var autoSwitchedForPlaybackKey: String? = null
     private var retriedPlaybackKey: String? = null
     private var shouldRefreshHomeOnExit: Boolean = false
+    private var lastDetectedAdSegmentUrl: String? = null
+    private var lastDetectedAdAtMs: Long = 0L
 
     private val playerListener = object : Media3Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -87,6 +90,7 @@ class PlayerViewModel @Inject constructor(
         override fun onPlayerError(error: PlaybackException) {
             val state = _uiState.value
             val playbackKey = buildPlaybackKey(state)
+            val errorDetail = error.toDisplayDetail()
             if (playbackKey != null && isLikelyPlaybackChainError(error)) {
                 if (retriedPlaybackKey != playbackKey) {
                     retriedPlaybackKey = playbackKey
@@ -103,27 +107,14 @@ class PlayerViewModel @Inject constructor(
                         return
                     }
                 }
-                val message = "播放链路异常，请稍后重试"
-                commit(PlayerContract.Mutation.ErrorChanged(message))
+                val message = "当前线路播放异常，已停止自动切换"
+                commit(PlayerContract.Mutation.ErrorChanged(message, errorDetail))
                 emitEffect(PlayerContract.UiEffect.ShowMessage(message))
                 return
             }
 
-            if (playbackKey != null && autoSwitchedForPlaybackKey != playbackKey) {
-                val source = state.playSources.firstOrNull { it.key == state.selectedSourceKey }
-                val currentEpisode = source?.episodes?.getOrNull(state.selectedEpisodeIndex)
-                if (source != null && currentEpisode != null) {
-                    val alternative = source.episodes.firstOrNull { it.index != currentEpisode.index && it.isHls }
-                    if (alternative != null) {
-                        autoSwitchedForPlaybackKey = playbackKey
-                        handleIntent(PlayerContract.UiIntent.SelectEpisode(alternative.index))
-                        emitEffect(PlayerContract.UiEffect.ShowMessage("当前线路异常，已自动切换可用剧集重试"))
-                        return
-                    }
-                }
-            }
-            val message = error.message ?: "播放失败"
-            commit(PlayerContract.Mutation.ErrorChanged(message))
+            val message = "当前线路播放失败"
+            commit(PlayerContract.Mutation.ErrorChanged(message, errorDetail))
             emitEffect(PlayerContract.UiEffect.ShowMessage(message))
         }
     }
@@ -415,6 +406,8 @@ class PlayerViewModel @Inject constructor(
         }
 
         commit(PlayerContract.Mutation.ErrorChanged(null))
+        lastDetectedAdSegmentUrl = null
+        lastDetectedAdAtMs = 0L
         val playbackUrl = runCatching { hlsSessionManager.preparePlaybackUrl(episode.url) }
             .getOrElse { episode.url }
         player.stop()
@@ -526,38 +519,10 @@ class PlayerViewModel @Inject constructor(
                 videoTitle = state.video?.name.orEmpty(),
                 episodeTitle = episode.title
             ).onSuccess { markedSegment ->
-                skipMarkedAdSegment(
-                    episodeUrl = episode.url,
-                    segmentEndPositionMs = markedSegment.segmentEndPositionMs
-                )
                 emitEffect(PlayerContract.UiEffect.ShowMessage(markedSegment.message))
             }.onFailure { error ->
                 emitEffect(PlayerContract.UiEffect.ShowMessage(error.message ?: "广告标记失败"))
             }
-        }
-    }
-
-    private fun skipMarkedAdSegment(
-        episodeUrl: String,
-        segmentEndPositionMs: Long?
-    ) {
-        val targetPositionMs = segmentEndPositionMs
-            ?.plus(MARKED_AD_SKIP_OFFSET_MS)
-            ?: return
-        val state = _uiState.value
-        if (state.currentEpisode?.url != episodeUrl) return
-
-        if (state.castState.isCasting) {
-            seekCastTo(targetPositionMs)
-        } else {
-            val durationMs = player.duration.takeIf { it > 0 } ?: state.durationMs
-            val boundedPositionMs = if (durationMs > 0) {
-                targetPositionMs.coerceAtMost(durationMs)
-            } else {
-                targetPositionMs
-            }
-            player.seekTo(boundedPositionMs)
-            updatePlaybackPosition()
         }
     }
 
@@ -588,10 +553,16 @@ class PlayerViewModel @Inject constructor(
     private fun startProgressUpdates() {
         if (progressJob?.isActive == true) return
         progressJob = viewModelScope.launch {
+            var saveTick = 0
             while (isActive) {
                 updatePlaybackPosition()
-                saveCurrentProgress(clearCompleted = false)
-                delay(5_000L)
+                detectConfirmedAdSegmentIfNeeded()
+                saveTick += 1
+                if (saveTick >= PROGRESS_SAVE_INTERVAL_TICKS) {
+                    saveCurrentProgress(clearCompleted = false)
+                    saveTick = 0
+                }
+                delay(AD_DETECTION_CHECK_INTERVAL_MS)
             }
         }
     }
@@ -599,6 +570,40 @@ class PlayerViewModel @Inject constructor(
     private fun stopProgressUpdates() {
         progressJob?.cancel()
         progressJob = null
+    }
+
+    private fun detectConfirmedAdSegmentIfNeeded() {
+        val state = _uiState.value
+        val episode = state.currentEpisode ?: return
+        if (state.castState.isCasting || !episode.isHls) return
+
+        val playbackPositionMs = player.currentPosition.coerceAtLeast(0L)
+        val candidate = hlsSessionManager.resolveAdDetectionCandidate(
+            originUrl = episode.url,
+            playbackPositionMs = playbackPositionMs
+        ) ?: return
+
+        val now = System.currentTimeMillis()
+        if (
+            candidate.segmentUrl == lastDetectedAdSegmentUrl &&
+            now - lastDetectedAdAtMs <= AD_DETECTION_DEDUP_WINDOW_MS
+        ) {
+            return
+        }
+
+        val recordedCandidate = hlsSessionManager.resolveAdDetectionCandidate(
+            originUrl = episode.url,
+            playbackPositionMs = playbackPositionMs,
+            recordHit = true
+        ) ?: candidate
+        hlsSessionManager.recordDetectedSegment(
+            candidate = recordedCandidate,
+            videoTitle = state.video?.name.orEmpty(),
+            episodeTitle = episode.title
+        )
+        lastDetectedAdSegmentUrl = candidate.segmentUrl
+        lastDetectedAdAtMs = now
+        emitEffect(PlayerContract.UiEffect.ShowMessage("规则识别：当前播放的是广告"))
     }
 
     private fun openCastFlow() {
@@ -768,6 +773,21 @@ class PlayerViewModel @Inject constructor(
             texts.contains("broken pipe") ||
             texts.contains("connection reset") ||
             texts.contains("socket closed")
+    }
+
+    private fun PlaybackException.toDisplayDetail(): String {
+        return buildList {
+            var current: Throwable? = this@toDisplayDetail
+            while (current != null) {
+                val type = current.javaClass.simpleName.ifBlank { current.javaClass.name }
+                val message = current.message
+                    ?.replace(Regex("""([?&][^=]+=)[^&\\s]+"""), "${'$'}1***")
+                    ?.take(800)
+                    .orEmpty()
+                add(if (message.isBlank()) type else "$type: $message")
+                current = current.cause
+            }
+        }.distinct().joinToString(separator = "\n")
     }
 
     private fun commit(mutation: PlayerContract.Mutation) {

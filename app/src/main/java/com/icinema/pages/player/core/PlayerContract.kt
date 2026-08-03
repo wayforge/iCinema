@@ -11,7 +11,6 @@ object PlayerContract {
     enum class SheetMode {
         Sources,
         Episodes,
-        Details,
         CastDevices
     }
 
@@ -30,6 +29,7 @@ object PlayerContract {
         val bufferedPositionMs: Long = 0,
         val controlsVisible: Boolean = true,
         val error: String? = null,
+        val errorDetail: String? = null,
         val canPlayNext: Boolean = false,
         val cacheEnabled: Boolean = true,
         val isFullscreen: Boolean = true,
@@ -128,7 +128,10 @@ object PlayerContract {
         data class ControlsVisibilityChanged(val visible: Boolean) : Mutation
         data class SheetModeChanged(val mode: SheetMode?) : Mutation
         data class FullscreenChanged(val isFullscreen: Boolean) : Mutation
-        data class ErrorChanged(val message: String?) : Mutation
+        data class ErrorChanged(
+            val message: String?,
+            val detail: String? = null
+        ) : Mutation
         data class ResumePositionChanged(val positionMs: Long?) : Mutation
         data class SettingsLoaded(
             val playbackSpeed: Float,

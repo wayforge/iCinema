@@ -38,6 +38,26 @@ class HlsPersistentCache @Inject constructor(
         return runCatching { file.readText(Charsets.UTF_8) }.getOrNull()
     }
 
+    fun contentFingerprint(url: String): HlsContentFingerprint? {
+        val file = dataFile(url)
+        if (!file.exists() || file.length() <= 0L) return null
+        return runCatching {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    digest.update(buffer, 0, read)
+                }
+            }
+            HlsContentFingerprint(
+                sha256 = digest.digest().toHexString(),
+                length = file.length()
+            )
+        }.getOrNull()
+    }
+
     fun write(url: String, contentType: String?, writer: (OutputStream) -> Unit): CachedResource {
         ensureRoot()
         val targetFile = dataFile(url)
@@ -177,7 +197,11 @@ class HlsPersistentCache @Inject constructor(
 
     private fun hash(value: String): String {
         val digest = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
-        return digest.joinToString(separator = "") { byte -> "%02x".format(byte) }
+        return digest.toHexString()
+    }
+
+    private fun ByteArray.toHexString(): String {
+        return joinToString(separator = "") { byte -> "%02x".format(byte) }
     }
 
     data class CachedResource(

@@ -21,6 +21,12 @@ class HlsAdRuleStore @Inject constructor(
         }
     }
 
+    fun loadDetectedSegments(): List<HlsDetectedAdSegment> {
+        return synchronized(lock) {
+            decodeDetectedSegments()
+        }
+    }
+
     fun matchingAdUrls(
         playlistUrl: String,
         segmentUrls: List<String>,
@@ -43,10 +49,29 @@ class HlsAdRuleStore @Inject constructor(
         return matchedUrls
     }
 
+    fun matchingAdRules(
+        playlistUrl: String,
+        segmentUrl: String,
+        contentFingerprint: HlsContentFingerprint? = null,
+        recordHits: Boolean = false
+    ): List<HlsAdRule> {
+        val matchedRules = loadRules()
+            .filter { HlsAdRuleMatcher.appliesToPlaylist(it, playlistUrl) }
+            .filter { rule ->
+                HlsAdRuleMatcher.matches(rule, segmentUrl) ||
+                    rule.matchesContent(contentFingerprint)
+            }
+        if (recordHits) {
+            recordHits(matchedRules.associate { it.id to 1L })
+        }
+        return matchedRules
+    }
+
     fun upsertMarkedSegment(
         playlistUrl: String,
         segmentUrl: String,
         durationSeconds: Double?,
+        contentFingerprint: HlsContentFingerprint?,
         videoTitle: String,
         episodeTitle: String
     ): HlsAdRule {
@@ -64,6 +89,8 @@ class HlsAdRuleStore @Inject constructor(
                 urlPattern = existing?.urlPattern ?: buildConservativePattern(segmentUrl),
                 matchText = buildMatchText(segmentUrl),
                 durationSeconds = durationSeconds ?: existing?.durationSeconds,
+                contentSha256 = contentFingerprint?.sha256 ?: existing?.contentSha256,
+                contentLength = contentFingerprint?.length ?: existing?.contentLength,
                 videoTitle = videoTitle.ifBlank { existing?.videoTitle.orEmpty() },
                 episodeTitle = episodeTitle.ifBlank { existing?.episodeTitle.orEmpty() },
                 createdAtMs = existing?.createdAtMs ?: now,
@@ -119,6 +146,8 @@ class HlsAdRuleStore @Inject constructor(
                     urlPattern = normalizedPattern,
                     matchText = buildMatchText(normalizedSegmentUrl),
                     durationSeconds = existing?.durationSeconds,
+                    contentSha256 = existing?.contentSha256,
+                    contentLength = existing?.contentLength,
                     videoTitle = existing?.videoTitle.orEmpty().ifBlank { "自定义规则" },
                     episodeTitle = existing?.episodeTitle.orEmpty(),
                     createdAtMs = existing?.createdAtMs ?: now,
@@ -135,6 +164,13 @@ class HlsAdRuleStore @Inject constructor(
                 rule
             }
         }
+    }
+
+    private fun HlsAdRule.matchesContent(fingerprint: HlsContentFingerprint?): Boolean {
+        if (fingerprint == null) return false
+        val ruleHash = contentSha256?.takeIf { it.isNotBlank() } ?: return false
+        val ruleLength = contentLength ?: return false
+        return ruleHash == fingerprint.sha256 && ruleLength == fingerprint.length
     }
 
     fun validateRule(
@@ -154,7 +190,59 @@ class HlsAdRuleStore @Inject constructor(
 
     fun clearRules() {
         synchronized(lock) {
-            prefs.edit().remove(KEY_RULES).apply()
+            prefs.edit()
+                .remove(KEY_RULES)
+                .remove(KEY_DETECTED_SEGMENTS)
+                .apply()
+        }
+    }
+
+    fun recordDetectedSegment(
+        rule: HlsAdRule,
+        playlistUrl: String,
+        segmentUrl: String,
+        segmentStartPositionMs: Long?,
+        segmentEndPositionMs: Long?,
+        durationSeconds: Double?,
+        contentFingerprint: HlsContentFingerprint?,
+        videoTitle: String,
+        episodeTitle: String,
+        detectedBy: String
+    ) {
+        synchronized(lock) {
+            val now = System.currentTimeMillis()
+            val segments = decodeDetectedSegments().toMutableList()
+            val existingIndex = segments.indexOfFirst {
+                it.playlistUrl == playlistUrl && it.segmentUrl == segmentUrl
+            }
+            val existing = segments.getOrNull(existingIndex)
+            val detectedSegment = HlsDetectedAdSegment(
+                id = existing?.id ?: UUID.randomUUID().toString(),
+                ruleId = rule.id,
+                playlistUrl = playlistUrl,
+                segmentUrl = segmentUrl,
+                segmentStartPositionMs = segmentStartPositionMs ?: existing?.segmentStartPositionMs,
+                segmentEndPositionMs = segmentEndPositionMs ?: existing?.segmentEndPositionMs,
+                durationSeconds = durationSeconds ?: existing?.durationSeconds,
+                contentSha256 = contentFingerprint?.sha256 ?: existing?.contentSha256,
+                contentLength = contentFingerprint?.length ?: existing?.contentLength,
+                videoTitle = videoTitle.ifBlank { existing?.videoTitle.orEmpty() },
+                episodeTitle = episodeTitle.ifBlank { existing?.episodeTitle.orEmpty() },
+                detectedBy = detectedBy.ifBlank { existing?.detectedBy.orEmpty() },
+                detectedCount = (existing?.detectedCount ?: 0L) + 1L,
+                firstDetectedAtMs = existing?.firstDetectedAtMs ?: now,
+                lastDetectedAtMs = now
+            )
+            if (existingIndex >= 0) {
+                segments[existingIndex] = detectedSegment
+            } else {
+                segments.add(0, detectedSegment)
+            }
+            encodeDetectedSegments(
+                segments
+                    .sortedByDescending { it.lastDetectedAtMs }
+                    .take(MAX_DETECTED_SEGMENTS)
+            )
         }
     }
 
@@ -206,9 +294,25 @@ class HlsAdRuleStore @Inject constructor(
         prefs.edit().putString(KEY_RULES, gson.toJson(rules)).apply()
     }
 
+    private fun decodeDetectedSegments(): List<HlsDetectedAdSegment> {
+        val json = prefs.getString(KEY_DETECTED_SEGMENTS, null).orEmpty()
+        if (json.isBlank()) return emptyList()
+        return runCatching {
+            gson.fromJson(json, Array<HlsDetectedAdSegment>::class.java)
+                ?.toList()
+                .orEmpty()
+        }.getOrDefault(emptyList())
+    }
+
+    private fun encodeDetectedSegments(segments: List<HlsDetectedAdSegment>) {
+        prefs.edit().putString(KEY_DETECTED_SEGMENTS, gson.toJson(segments)).apply()
+    }
+
     private companion object {
         private const val PREFS_NAME = "hls_ad_rules"
         private const val KEY_RULES = "rules"
+        private const val KEY_DETECTED_SEGMENTS = "detected_segments"
+        private const val MAX_DETECTED_SEGMENTS = 100
         private val AD_TOKEN_REGEX = Regex(
             """(?i)(^|[_.=-])(ad|ads|adv|advert|vast|vmap|preroll|midroll|postroll|sponsor|commercial)([_.=-]|$)"""
         )

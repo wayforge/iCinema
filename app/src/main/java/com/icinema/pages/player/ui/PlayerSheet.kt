@@ -65,18 +65,6 @@ internal fun PlayerSheetHost(
                 )
             }
 
-            PlayerContract.SheetMode.Details -> {
-                PlayerDetailsSection(
-                    state = state,
-                    selectedSource = selectedSource,
-                    onOpenSources = onOpenSources,
-                    onOpenEpisodes = onOpenEpisodes,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
-
             PlayerContract.SheetMode.CastDevices -> {
                 CastDeviceSheetContent(
                     state = state.castState,
