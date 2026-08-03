@@ -31,6 +31,8 @@ class HlsAdFilterViewModel @Inject constructor(
             is HlsAdFilterContract.UiIntent.DeleteRule -> deleteRule(intent.ruleId)
             HlsAdFilterContract.UiIntent.ClearAll -> clearAll()
             is HlsAdFilterContract.UiIntent.PreviewRule -> previewRule(intent.ruleId)
+            is HlsAdFilterContract.UiIntent.SaveRule -> saveRule(intent)
+            is HlsAdFilterContract.UiIntent.ValidateRule -> validateRule(intent)
         }
     }
 
@@ -57,6 +59,37 @@ class HlsAdFilterViewModel @Inject constructor(
         emitEffect(HlsAdFilterContract.UiEffect.OpenPreview(item.segmentUrl, item.title))
     }
 
+    private fun saveRule(intent: HlsAdFilterContract.UiIntent.SaveRule) {
+        adRuleStore.saveRule(
+            ruleId = intent.ruleId,
+            playlistUrl = intent.playlistUrl,
+            segmentUrl = intent.segmentUrl,
+            urlPattern = intent.urlPattern
+        ).onSuccess {
+            loadRules()
+            emitEffect(HlsAdFilterContract.UiEffect.ShowMessage("已保存广告规则"))
+        }.onFailure { error ->
+            emitEffect(HlsAdFilterContract.UiEffect.ShowMessage(error.message ?: "保存广告规则失败"))
+        }
+    }
+
+    private fun validateRule(intent: HlsAdFilterContract.UiIntent.ValidateRule) {
+        adRuleStore.validateRule(
+            ruleId = intent.ruleId,
+            playlistUrl = intent.playlistUrl,
+            segmentUrl = intent.segmentUrl
+        ).onSuccess { result ->
+            val message = when {
+                result.matches -> "校验通过：该片段会被代理过滤"
+                !result.playlistMatches -> "校验未通过：播放清单不匹配"
+                else -> "校验未通过：片段地址不匹配"
+            }
+            emitEffect(HlsAdFilterContract.UiEffect.ShowMessage(message))
+        }.onFailure { error ->
+            emitEffect(HlsAdFilterContract.UiEffect.ShowMessage(error.message ?: "校验广告规则失败"))
+        }
+    }
+
     private fun HlsAdRule.toUiItem(): HlsAdFilterContract.AdRuleItem {
         val title = listOf(videoTitle, episodeTitle)
             .filter { it.isNotBlank() }
@@ -70,10 +103,14 @@ class HlsAdFilterViewModel @Inject constructor(
             id = id,
             title = title,
             subtitle = subtitle,
+            playlistUrl = playlistUrl,
             segmentUrl = segmentUrl,
+            urlPattern = urlPattern,
             matchText = matchText.ifBlank { segmentUrl.substringAfterLast('/') },
             matchType = if (urlPattern == null) "精确片段" else "同类片段",
-            createdAtText = DATE_FORMAT.format(Date(createdAtMs))
+            createdAtText = DATE_FORMAT.format(Date(createdAtMs)),
+            hitCount = hitCount,
+            lastHitAtText = lastHitAtMs?.let { DATE_FORMAT.format(Date(it)) }
         )
     }
 

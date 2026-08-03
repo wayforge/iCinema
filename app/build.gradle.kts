@@ -79,7 +79,6 @@ dependencies {
     implementation(libs.media3.common)
     implementation(libs.media3.hls)
     implementation(libs.media3.datasource)
-    implementation(libs.media3.database)
 
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)

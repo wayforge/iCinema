@@ -45,15 +45,28 @@ class HlsAdRuleMatcherTest {
         assertTrue(HlsAdRuleMatcher.matches(rule, "https://cdn.example.com/show/episode/ab9c0a82.ts?hash=new"))
     }
 
+    @Test
+    fun `matches same class segment with a user configured regex`() {
+        val rule = rule(
+            playlistUrl = "https://cdn.example.com/show/episode/index.m3u8",
+            segmentUrl = "https://cdn.example.com/show/episode/ad_001.ts",
+            urlPattern = "https://cdn\\.example\\.com/show/episode/ad_\\d+\\.ts"
+        )
+
+        assertTrue(HlsAdRuleMatcher.matches(rule, "https://cdn.example.com/show/episode/ad_002.ts"))
+        assertFalse(HlsAdRuleMatcher.matches(rule, "https://cdn.example.com/show/episode/content_002.ts"))
+    }
+
     private fun rule(
         playlistUrl: String,
-        segmentUrl: String
+        segmentUrl: String,
+        urlPattern: String? = null
     ): HlsAdRule {
         return HlsAdRule(
             id = "rule",
             playlistUrl = playlistUrl,
             segmentUrl = segmentUrl,
-            urlPattern = null,
+            urlPattern = urlPattern,
             matchText = segmentUrl.substringBefore('?').substringAfterLast('/'),
             durationSeconds = 3.0,
             videoTitle = "video",

@@ -10,10 +10,14 @@ object HlsAdFilterContract {
         val id: String,
         val title: String,
         val subtitle: String,
+        val playlistUrl: String,
         val segmentUrl: String,
+        val urlPattern: String?,
         val matchText: String,
         val matchType: String,
-        val createdAtText: String
+        val createdAtText: String,
+        val hitCount: Long,
+        val lastHitAtText: String?
     )
 
     sealed interface UiIntent {
@@ -21,6 +25,17 @@ object HlsAdFilterContract {
         data class DeleteRule(val ruleId: String) : UiIntent
         data object ClearAll : UiIntent
         data class PreviewRule(val ruleId: String) : UiIntent
+        data class SaveRule(
+            val ruleId: String?,
+            val playlistUrl: String,
+            val segmentUrl: String,
+            val urlPattern: String?
+        ) : UiIntent
+        data class ValidateRule(
+            val ruleId: String,
+            val playlistUrl: String,
+            val segmentUrl: String
+        ) : UiIntent
     }
 
     sealed interface UiEffect {

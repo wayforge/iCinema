@@ -21,13 +21,26 @@ class HlsAdRuleStore @Inject constructor(
         }
     }
 
-    fun matchingAdUrls(playlistUrl: String, segmentUrls: List<String>): Set<String> {
+    fun matchingAdUrls(
+        playlistUrl: String,
+        segmentUrls: List<String>,
+        recordHits: Boolean = false
+    ): Set<String> {
         val rules = loadRules().filter { HlsAdRuleMatcher.appliesToPlaylist(it, playlistUrl) }
         if (rules.isEmpty()) return emptySet()
 
-        return segmentUrls.filterTo(linkedSetOf()) { segmentUrl ->
-            rules.any { rule -> HlsAdRuleMatcher.matches(rule, segmentUrl) }
+        val matchedRuleCounts = mutableMapOf<String, Long>()
+        val matchedUrls = segmentUrls.filterTo(linkedSetOf()) { segmentUrl ->
+            val matchingRules = rules.filter { rule -> HlsAdRuleMatcher.matches(rule, segmentUrl) }
+            matchingRules.forEach { rule ->
+                matchedRuleCounts[rule.id] = (matchedRuleCounts[rule.id] ?: 0L) + 1L
+            }
+            matchingRules.isNotEmpty()
         }
+        if (recordHits) {
+            recordHits(matchedRuleCounts)
+        }
+        return matchedUrls
     }
 
     fun upsertMarkedSegment(
@@ -54,7 +67,9 @@ class HlsAdRuleStore @Inject constructor(
                 videoTitle = videoTitle.ifBlank { existing?.videoTitle.orEmpty() },
                 episodeTitle = episodeTitle.ifBlank { existing?.episodeTitle.orEmpty() },
                 createdAtMs = existing?.createdAtMs ?: now,
-                updatedAtMs = now
+                updatedAtMs = now,
+                hitCount = existing?.hitCount ?: 0L,
+                lastHitAtMs = existing?.lastHitAtMs
             )
             if (existingIndex >= 0) {
                 rules[existingIndex] = rule
@@ -72,9 +87,90 @@ class HlsAdRuleStore @Inject constructor(
         }
     }
 
+    fun saveRule(
+        ruleId: String?,
+        playlistUrl: String,
+        segmentUrl: String,
+        urlPattern: String?
+    ): Result<HlsAdRule> {
+        return runCatching {
+            val normalizedPlaylistUrl = playlistUrl.trim().also {
+                require(it.isNotBlank()) { "请输入播放清单地址" }
+            }
+            val normalizedSegmentUrl = segmentUrl.trim().also {
+                require(it.isNotBlank()) { "请输入广告片段地址" }
+            }
+            val normalizedPattern = urlPattern?.trim()?.takeIf { it.isNotBlank() }
+            normalizedPattern?.let(::Regex)
+
+            synchronized(lock) {
+                val now = System.currentTimeMillis()
+                val rules = decodeRules().toMutableList()
+                val existingIndex = ruleId?.let { id -> rules.indexOfFirst { it.id == id } } ?: -1
+                val existing = rules.getOrNull(existingIndex)
+                val matcherChanged = existing == null ||
+                    existing.playlistUrl != normalizedPlaylistUrl ||
+                    existing.segmentUrl != normalizedSegmentUrl ||
+                    existing.urlPattern != normalizedPattern
+                val rule = HlsAdRule(
+                    id = existing?.id ?: UUID.randomUUID().toString(),
+                    playlistUrl = normalizedPlaylistUrl,
+                    segmentUrl = normalizedSegmentUrl,
+                    urlPattern = normalizedPattern,
+                    matchText = buildMatchText(normalizedSegmentUrl),
+                    durationSeconds = existing?.durationSeconds,
+                    videoTitle = existing?.videoTitle.orEmpty().ifBlank { "自定义规则" },
+                    episodeTitle = existing?.episodeTitle.orEmpty(),
+                    createdAtMs = existing?.createdAtMs ?: now,
+                    updatedAtMs = now,
+                    hitCount = if (matcherChanged) 0L else existing?.hitCount ?: 0L,
+                    lastHitAtMs = if (matcherChanged) null else existing?.lastHitAtMs
+                )
+                if (existingIndex >= 0) {
+                    rules[existingIndex] = rule
+                } else {
+                    rules.add(0, rule)
+                }
+                encodeRules(rules)
+                rule
+            }
+        }
+    }
+
+    fun validateRule(
+        ruleId: String,
+        playlistUrl: String,
+        segmentUrl: String
+    ): Result<HlsAdRuleValidation> {
+        return runCatching {
+            val rule = loadRules().firstOrNull { it.id == ruleId }
+                ?: throw IllegalArgumentException("广告规则不存在")
+            HlsAdRuleValidation(
+                playlistMatches = HlsAdRuleMatcher.appliesToPlaylist(rule, playlistUrl.trim()),
+                segmentMatches = HlsAdRuleMatcher.matches(rule, segmentUrl.trim())
+            )
+        }
+    }
+
     fun clearRules() {
         synchronized(lock) {
             prefs.edit().remove(KEY_RULES).apply()
+        }
+    }
+
+    private fun recordHits(hitCounts: Map<String, Long>) {
+        if (hitCounts.isEmpty()) return
+        synchronized(lock) {
+            val now = System.currentTimeMillis()
+            val rules = decodeRules()
+            val updatedRules = rules.map { rule ->
+                val count = hitCounts[rule.id] ?: return@map rule
+                rule.copy(
+                    hitCount = rule.hitCount + count,
+                    lastHitAtMs = now
+                )
+            }
+            encodeRules(updatedRules)
         }
     }
 

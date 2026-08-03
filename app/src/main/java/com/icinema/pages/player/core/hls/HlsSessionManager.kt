@@ -8,7 +8,8 @@ class HlsSessionManager @Inject constructor(
     private val proxyServer: HlsProxyServer,
     private val prefetchCoordinator: HlsPrefetchCoordinator
 ) {
-    fun playbackUrl(originUrl: String): String {
+    fun preparePlaybackUrl(originUrl: String): String {
+        prefetchCoordinator.prefetchManifest(originUrl, includeInitialResources = true)
         return proxyServer.proxyUrl(
             originUrl = originUrl,
             type = HlsProxyResourceType.Manifest,
@@ -16,7 +17,8 @@ class HlsSessionManager @Inject constructor(
         )
     }
 
-    fun castUrl(originUrl: String): String {
+    fun prepareCastUrl(originUrl: String): String {
+        prefetchCoordinator.prefetchManifest(originUrl, includeInitialResources = true)
         return proxyServer.proxyUrl(
             originUrl = originUrl,
             type = HlsProxyResourceType.Manifest,
@@ -28,8 +30,8 @@ class HlsSessionManager @Inject constructor(
         return proxyServer.resourceUrl(originUrl, HlsProxyTarget.Loopback)
     }
 
-    fun prefetch(originUrl: String) {
-        prefetchCoordinator.prefetchManifest(originUrl)
+    fun prefetchNextEpisodeManifest(originUrl: String) {
+        prefetchCoordinator.prefetchManifest(originUrl, includeInitialResources = false)
     }
 
     fun markCurrentSegmentAsAd(

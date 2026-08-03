@@ -21,6 +21,8 @@ class HlsPrefetchCoordinator @Inject constructor(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val inFlight = Collections.synchronizedSet(mutableSetOf<String>())
+    private val manifestPolicyLock = Any()
+    private val manifestResourcePrefetch = mutableMapOf<String, Boolean>()
     private val queueLock = Any()
     private val pendingResources = ArrayDeque<String>()
     private val queuedResources = mutableSetOf<String>()
@@ -28,8 +30,13 @@ class HlsPrefetchCoordinator @Inject constructor(
     private val snapshotLock = Any()
     private val playlistSnapshots = LinkedHashMap<String, HlsPlaylistSnapshot>()
 
-    fun prefetchManifest(manifestUrl: String) {
-        if (!inFlight.add(manifestUrl)) return
+    fun prefetchManifest(manifestUrl: String, includeInitialResources: Boolean) {
+        val shouldStart = synchronized(manifestPolicyLock) {
+            manifestResourcePrefetch[manifestUrl] =
+                (manifestResourcePrefetch[manifestUrl] == true) || includeInitialResources
+            inFlight.add(manifestUrl)
+        }
+        if (!shouldStart) return
         scope.launch {
             try {
                 runCatching {
@@ -40,22 +47,27 @@ class HlsPrefetchCoordinator @Inject constructor(
                         if (body.isBlank()) return@use
                         runCatching { cache.writeText(manifestUrl, HLS_CONTENT_TYPE, body) }
                         recordManifestSnapshot(manifestUrl, body)
-                        manifestRewriter.extractChildManifestUrls(manifestUrl, body)
-                            .take(CHILD_MANIFEST_PREFETCH_LIMIT)
-                            .forEach(::prefetchManifest)
-                        val mediaSegments = manifestRewriter.extractMediaSegments(manifestUrl, body)
-                        val knownAdUrls = buildSet {
-                            addAll(manifestRewriter.extractAdResourceUrls(manifestUrl, body))
-                            addAll(adRuleStore.matchingAdUrls(manifestUrl, mediaSegments.map { it.url }))
+                        val includeResources = synchronized(manifestPolicyLock) {
+                            manifestResourcePrefetch[manifestUrl] == true
                         }
-                        val result = manifestRewriter.rewrite(manifestUrl, body, knownAdUrls) { url, _ -> url }
-                        prefetchResources(result.prefetchUrls.take(MANIFEST_PREFETCH_LIMIT))
+                        if (includeResources) {
+                            val mediaSegments = manifestRewriter.extractMediaSegments(manifestUrl, body)
+                            val knownAdUrls = buildSet {
+                                addAll(manifestRewriter.extractAdResourceUrls(manifestUrl, body))
+                                addAll(adRuleStore.matchingAdUrls(manifestUrl, mediaSegments.map { it.url }))
+                            }
+                            val result = manifestRewriter.rewrite(manifestUrl, body, knownAdUrls) { url, _ -> url }
+                            prefetchResources(result.prefetchUrls.take(INITIAL_RESOURCE_PREFETCH_LIMIT))
+                        }
                     }
                 }.onFailure { error ->
                     Log.d(TAG, "prefetch manifest failed url=$manifestUrl error=${error.message}")
                 }
             } finally {
-                inFlight.remove(manifestUrl)
+                synchronized(manifestPolicyLock) {
+                    manifestResourcePrefetch.remove(manifestUrl)
+                    inFlight.remove(manifestUrl)
+                }
             }
         }
     }
@@ -174,8 +186,7 @@ class HlsPrefetchCoordinator @Inject constructor(
     private companion object {
         private const val TAG = "iCinemaHlsPrefetch"
         private const val HLS_CONTENT_TYPE = "application/vnd.apple.mpegurl"
-        private const val CHILD_MANIFEST_PREFETCH_LIMIT = 4
-        private const val MANIFEST_PREFETCH_LIMIT = 24
+        private const val INITIAL_RESOURCE_PREFETCH_LIMIT = 6
         private const val RESOURCE_PREFETCH_LIMIT = 24
         private const val RESOURCE_QUEUE_LIMIT = 64
         private const val SNAPSHOT_LIMIT = 32

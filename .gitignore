@@ -5,3 +5,21 @@
 /.kotlin/
 /.qwen/
 /local.properties
+
+# Build outputs and reports
+/build/
+**/build/
+*.apk
+*.aab
+*.hprof
+
+# Native build intermediates
+/.cxx/
+/.externalNativeBuild/
+
+# Local logs and signing credentials
+*.log
+/key.properties
+/keystore.properties
+*.jks
+*.keystore

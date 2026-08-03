@@ -415,7 +415,7 @@ class PlayerViewModel @Inject constructor(
         }
 
         commit(PlayerContract.Mutation.ErrorChanged(null))
-        val playbackUrl = runCatching { hlsSessionManager.playbackUrl(episode.url) }
+        val playbackUrl = runCatching { hlsSessionManager.preparePlaybackUrl(episode.url) }
             .getOrElse { episode.url }
         player.stop()
         player.setMediaItem(
@@ -424,7 +424,6 @@ class PlayerViewModel @Inject constructor(
                 .setMimeType(MimeTypes.APPLICATION_M3U8)
                 .build()
         )
-        hlsSessionManager.prefetch(episode.url)
         player.prepare()
         if ((seekPositionMs ?: 0L) > 0L) {
             player.seekTo(seekPositionMs ?: 0L)
@@ -689,8 +688,7 @@ class PlayerViewModel @Inject constructor(
         val state = _uiState.value
         val episode = state.currentEpisode ?: return null
         if (!episode.isHls) return null
-        hlsSessionManager.prefetch(episode.url)
-        val castUrl = runCatching { hlsSessionManager.castUrl(episode.url) }.getOrNull() ?: return null
+        val castUrl = runCatching { hlsSessionManager.prepareCastUrl(episode.url) }.getOrNull() ?: return null
         return CastMedia(
             url = castUrl,
             title = listOfNotNull(

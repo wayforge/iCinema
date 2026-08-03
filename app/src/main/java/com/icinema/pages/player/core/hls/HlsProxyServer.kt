@@ -13,6 +13,7 @@ import java.net.Socket
 import java.net.URLDecoder
 import java.net.URLEncoder
 import java.util.Locale
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.roundToLong
@@ -33,6 +34,8 @@ class HlsProxyServer @Inject constructor(
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lock = Any()
+    private val accessTokenLock = Any()
+    private val lanAccessTokens = mutableMapOf<String, Long>()
     private val recentResources = ArrayDeque<RecentHlsResource>()
     private var serverSocket: ServerSocket? = null
     private var port: Int = 0
@@ -41,7 +44,8 @@ class HlsProxyServer @Inject constructor(
         originUrl: String,
         type: HlsProxyResourceType,
         target: HlsProxyTarget,
-        parentPlaylistUrl: String? = null
+        parentPlaylistUrl: String? = null,
+        accessToken: String? = null
     ): String {
         ensureStarted()
         val host = when (target) {
@@ -56,6 +60,10 @@ class HlsProxyServer @Inject constructor(
             append("u=").append(URLEncoder.encode(originUrl, Charsets.UTF_8.name()))
             if (!parentPlaylistUrl.isNullOrBlank()) {
                 append("&p=").append(URLEncoder.encode(parentPlaylistUrl, Charsets.UTF_8.name()))
+            }
+            if (target == HlsProxyTarget.Lan) {
+                append("&").append(ACCESS_TOKEN_QUERY).append("=")
+                    .append(accessToken ?: issueLanAccessToken())
             }
         }
         return "http://$host:$port$path?$query"
@@ -133,8 +141,21 @@ class HlsProxyServer @Inject constructor(
     private fun handleClient(socket: Socket) {
         socket.use { client ->
             client.soTimeout = SOCKET_TIMEOUT_MS
-            val request = parseRequest(client.getInputStream()) ?: return
+            val request = parseRequest(
+                input = client.getInputStream(),
+                isLoopbackClient = client.inetAddress.isLoopbackAddress
+            ) ?: return
             runCatching {
+                if (request.target == HlsProxyTarget.Lan && !isValidLanAccessToken(request.query[ACCESS_TOKEN_QUERY])) {
+                    writeTextResponse(
+                        output = client.getOutputStream(),
+                        statusCode = 403,
+                        contentType = "text/plain",
+                        body = "Forbidden",
+                        headersOnly = request.method == "HEAD"
+                    )
+                    return@runCatching
+                }
                 when (request.path) {
                     MANIFEST_PATH -> serveManifest(client, request)
                     RESOURCE_PATH -> serveResource(client, request)
@@ -190,17 +211,24 @@ class HlsProxyServer @Inject constructor(
         val knownAdUrls = buildSet {
             cachedPlaylist?.let { addAll(manifestRewriter.extractAdResourceUrls(originUrl, it)) }
             addAll(manifestRewriter.extractAdResourceUrls(originUrl, playlist))
-            addAll(adRuleStore.matchingAdUrls(originUrl, mediaSegments.map { it.url }))
+            addAll(
+                adRuleStore.matchingAdUrls(
+                    playlistUrl = originUrl,
+                    segmentUrls = mediaSegments.map { it.url },
+                    recordHits = true
+                )
+            )
         }
         val rewritten = manifestRewriter.rewrite(originUrl, playlist, knownAdUrls) { url, type ->
             proxyUrl(
                 originUrl = url,
                 type = type,
                 target = target,
-                parentPlaylistUrl = originUrl.takeIf { type == HlsProxyResourceType.Resource }
+                parentPlaylistUrl = originUrl.takeIf { type == HlsProxyResourceType.Resource },
+                accessToken = request.query[ACCESS_TOKEN_QUERY]
             )
         }
-        prefetchCoordinator.prefetchResources(rewritten.prefetchUrls)
+        prefetchCoordinator.prefetchResources(rewritten.prefetchUrls.take(SERVED_MANIFEST_PREFETCH_LIMIT))
         writeTextResponse(
             output = socket.getOutputStream(),
             statusCode = 200,
@@ -319,7 +347,7 @@ class HlsProxyServer @Inject constructor(
         output.flush()
     }
 
-    private fun parseRequest(input: InputStream): ProxyRequest? {
+    private fun parseRequest(input: InputStream, isLoopbackClient: Boolean): ProxyRequest? {
         val reader = input.bufferedReader(Charsets.ISO_8859_1)
         val requestLine = reader.readLine() ?: return null
         val requestParts = requestLine.split(" ")
@@ -346,8 +374,7 @@ class HlsProxyServer @Inject constructor(
                 val encodedValue = value.substringAfter('=')
                 key to URLDecoder.decode(encodedValue, Charsets.UTF_8.name())
             }
-        val hostHeader = headers["host"].orEmpty()
-        val target = if (hostHeader.startsWith(LOOPBACK_HOST) || hostHeader.startsWith("localhost")) {
+        val target = if (isLoopbackClient) {
             HlsProxyTarget.Loopback
         } else {
             HlsProxyTarget.Lan
@@ -425,6 +452,7 @@ class HlsProxyServer @Inject constructor(
             200 -> "OK"
             206 -> "Partial Content"
             400 -> "Bad Request"
+            403 -> "Forbidden"
             404 -> "Not Found"
             416 -> "Range Not Satisfiable"
             502 -> "Bad Gateway"
@@ -446,6 +474,25 @@ class HlsProxyServer @Inject constructor(
                 .firstOrNull { !it.isLoopbackAddress }
                 ?.hostAddress
         }.getOrNull()
+    }
+
+    private fun issueLanAccessToken(): String {
+        synchronized(accessTokenLock) {
+            val now = System.currentTimeMillis()
+            lanAccessTokens.entries.removeAll { it.value <= now }
+            return UUID.randomUUID().toString().replace("-", "").also { token ->
+                lanAccessTokens[token] = now + LAN_ACCESS_TOKEN_TTL_MS
+            }
+        }
+    }
+
+    private fun isValidLanAccessToken(token: String?): Boolean {
+        if (token.isNullOrBlank()) return false
+        synchronized(accessTokenLock) {
+            val now = System.currentTimeMillis()
+            lanAccessTokens.entries.removeAll { it.value <= now }
+            return lanAccessTokens[token]?.let { it > now } == true
+        }
     }
 
     private fun recordRecentResource(resourceUrl: String, playlistUrl: String) {
@@ -588,9 +635,12 @@ class HlsProxyServer @Inject constructor(
         private const val MANIFEST_PATH = "/hls/manifest"
         private const val RESOURCE_PATH = "/hls/resource"
         private const val HLS_CONTENT_TYPE = "application/vnd.apple.mpegurl"
+        private const val ACCESS_TOKEN_QUERY = "t"
         private const val SOCKET_TIMEOUT_MS = 30_000
         private const val BACKLOG = 32
+        private const val SERVED_MANIFEST_PREFETCH_LIMIT = 6
         private const val RECENT_RESOURCE_LIMIT = 30
         private const val RECENT_RESOURCE_WINDOW_MS = 120_000L
+        private const val LAN_ACCESS_TOKEN_TTL_MS = 2 * 60 * 60 * 1000L
     }
 }

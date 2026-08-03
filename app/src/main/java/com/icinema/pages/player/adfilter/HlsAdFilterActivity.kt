@@ -22,6 +22,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -86,6 +87,9 @@ private fun HlsAdFilterScreen(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var showClearConfirm by remember { mutableStateOf(false) }
+    var showRuleEditor by remember { mutableStateOf(false) }
+    var editingRule by remember { mutableStateOf<HlsAdFilterContract.AdRuleItem?>(null) }
+    var validatingRule by remember { mutableStateOf<HlsAdFilterContract.AdRuleItem?>(null) }
 
     LaunchedEffect(Unit) {
         viewModel.handleIntent(HlsAdFilterContract.UiIntent.Load)
@@ -117,6 +121,41 @@ private fun HlsAdFilterScreen(
         )
     }
 
+    if (showRuleEditor) {
+        HlsAdRuleEditorDialog(
+            rule = editingRule,
+            onDismiss = { showRuleEditor = false },
+            onSave = { playlistUrl, segmentUrl, urlPattern ->
+                viewModel.handleIntent(
+                    HlsAdFilterContract.UiIntent.SaveRule(
+                        ruleId = editingRule?.id,
+                        playlistUrl = playlistUrl,
+                        segmentUrl = segmentUrl,
+                        urlPattern = urlPattern
+                    )
+                )
+                showRuleEditor = false
+            }
+        )
+    }
+
+    validatingRule?.let { rule ->
+        HlsAdRuleValidationDialog(
+            rule = rule,
+            onDismiss = { validatingRule = null },
+            onValidate = { playlistUrl, segmentUrl ->
+                viewModel.handleIntent(
+                    HlsAdFilterContract.UiIntent.ValidateRule(
+                        ruleId = rule.id,
+                        playlistUrl = playlistUrl,
+                        segmentUrl = segmentUrl
+                    )
+                )
+                validatingRule = null
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -127,6 +166,12 @@ private fun HlsAdFilterScreen(
                     }
                 },
                 actions = {
+                    TextButton(onClick = {
+                        editingRule = null
+                        showRuleEditor = true
+                    }) {
+                        Text("新增")
+                    }
                     if (state.rules.isNotEmpty()) {
                         TextButton(onClick = { showClearConfirm = true }) {
                             Text("清空")
@@ -140,6 +185,11 @@ private fun HlsAdFilterScreen(
         HlsAdFilterContent(
             state = state,
             onPreview = { viewModel.handleIntent(HlsAdFilterContract.UiIntent.PreviewRule(it)) },
+            onEdit = { rule ->
+                editingRule = rule
+                showRuleEditor = true
+            },
+            onValidate = { validatingRule = it },
             onDelete = { viewModel.handleIntent(HlsAdFilterContract.UiIntent.DeleteRule(it)) },
             modifier = Modifier.padding(paddingValues)
         )
@@ -150,6 +200,8 @@ private fun HlsAdFilterScreen(
 private fun HlsAdFilterContent(
     state: HlsAdFilterContract.UiState,
     onPreview: (String) -> Unit,
+    onEdit: (HlsAdFilterContract.AdRuleItem) -> Unit,
+    onValidate: (HlsAdFilterContract.AdRuleItem) -> Unit,
     onDelete: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -161,13 +213,14 @@ private fun HlsAdFilterContent(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
+            BuiltInAdFilterRulesCard()
             Text(
                 text = "暂无广告过滤规则",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = "播放时点击“标记广告”后，规则会显示在这里。",
+                text = "播放时可标记广告，也可在右上角手动新增规则。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -181,11 +234,39 @@ private fun HlsAdFilterContent(
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        item {
+            BuiltInAdFilterRulesCard()
+        }
         items(state.rules, key = { it.id }) { item ->
             HlsAdRuleCard(
                 item = item,
                 onPreview = { onPreview(item.id) },
+                onEdit = { onEdit(item) },
+                onValidate = { onValidate(item) },
                 onDelete = { onDelete(item.id) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun BuiltInAdFilterRulesCard(modifier: Modifier = Modifier) {
+    Card(modifier = modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = "内置自动过滤（只读）",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = "• CUE-OUT / CUE-IN、SCTE-35 等 HLS 广告标签\n" +
+                    "• 带广告标识的 DATERANGE 标签\n" +
+                    "• URL 中的 ad、vast、vmap、preroll、sponsor 等关键词",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -195,6 +276,8 @@ private fun HlsAdFilterContent(
 private fun HlsAdRuleCard(
     item: HlsAdFilterContract.AdRuleItem,
     onPreview: () -> Unit,
+    onEdit: () -> Unit,
+    onValidate: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -243,7 +326,19 @@ private fun HlsAdRuleCard(
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+            Text(
+                text = "规则命中 ${item.hitCount} 个片段" +
+                    (item.lastHitAtText?.let { " / 最近命中 $it" }.orEmpty()),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onEdit) {
+                    Text("编辑")
+                }
+                TextButton(onClick = onValidate) {
+                    Text("校验")
+                }
                 TextButton(onClick = onPreview) {
                     Text("播放片段")
                 }
@@ -253,6 +348,108 @@ private fun HlsAdRuleCard(
             }
         }
     }
+}
+
+@Composable
+private fun HlsAdRuleEditorDialog(
+    rule: HlsAdFilterContract.AdRuleItem?,
+    onDismiss: () -> Unit,
+    onSave: (playlistUrl: String, segmentUrl: String, urlPattern: String?) -> Unit
+) {
+    var playlistUrl by remember(rule?.id) { mutableStateOf(rule?.playlistUrl.orEmpty()) }
+    var segmentUrl by remember(rule?.id) { mutableStateOf(rule?.segmentUrl.orEmpty()) }
+    var urlPattern by remember(rule?.id) { mutableStateOf(rule?.urlPattern.orEmpty()) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (rule == null) "新增广告规则" else "编辑广告规则") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "规则只对匹配的播放清单生效；修改匹配条件会重置命中统计。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = playlistUrl,
+                    onValueChange = { playlistUrl = it },
+                    label = { Text("播放清单 URL") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = segmentUrl,
+                    onValueChange = { segmentUrl = it },
+                    label = { Text("广告片段 URL") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = urlPattern,
+                    onValueChange = { urlPattern = it },
+                    label = { Text("同类片段正则（可选）") },
+                    supportingText = { Text("留空时按片段完整 URL、忽略查询参数或文件名匹配") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                onSave(playlistUrl, segmentUrl, urlPattern.takeIf { it.isNotBlank() })
+            }) {
+                Text("保存")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
+}
+
+@Composable
+private fun HlsAdRuleValidationDialog(
+    rule: HlsAdFilterContract.AdRuleItem,
+    onDismiss: () -> Unit,
+    onValidate: (playlistUrl: String, segmentUrl: String) -> Unit
+) {
+    var playlistUrl by remember(rule.id) { mutableStateOf(rule.playlistUrl) }
+    var segmentUrl by remember(rule.id) { mutableStateOf(rule.segmentUrl) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("校验广告规则") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "使用代理的同一匹配逻辑校验这组 URL 是否会被过滤。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                OutlinedTextField(
+                    value = playlistUrl,
+                    onValueChange = { playlistUrl = it },
+                    label = { Text("待校验播放清单 URL") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                OutlinedTextField(
+                    value = segmentUrl,
+                    onValueChange = { segmentUrl = it },
+                    label = { Text("待校验片段 URL") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onValidate(playlistUrl, segmentUrl) }) {
+                Text("开始校验")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
 }
 
 @Preview(showBackground = true, widthDp = 412)
@@ -266,14 +463,20 @@ private fun HlsAdFilterContentPreview() {
                         id = "1",
                         title = "示例影片 - 第1集",
                         subtitle = "约 6.0 秒 / cdn.example.com",
+                        playlistUrl = "https://cdn.example.com/ad/index.m3u8",
                         segmentUrl = "https://cdn.example.com/ad/segment_001.ts",
+                        urlPattern = "https://cdn\\.example\\.com/ad/segment_\\d+\\.ts",
                         matchText = "segment_001.ts",
                         matchType = "同类片段",
-                        createdAtText = "08-02 15:30"
+                        createdAtText = "08-02 15:30",
+                        hitCount = 12,
+                        lastHitAtText = "08-03 10:30"
                     )
                 )
             ),
             onPreview = {},
+            onEdit = {},
+            onValidate = {},
             onDelete = {}
         )
     }

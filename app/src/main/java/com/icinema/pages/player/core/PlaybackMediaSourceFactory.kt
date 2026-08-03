@@ -5,12 +5,8 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
-import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
-import androidx.media3.datasource.cache.SimpleCache
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -18,31 +14,15 @@ import javax.inject.Singleton
 @UnstableApi
 @Singleton
 class PlaybackMediaSourceFactory @Inject constructor(
-    @ApplicationContext private val context: Context,
-    private val cacheManager: PlaybackCacheManager
+    @ApplicationContext private val context: Context
 ) {
-    private val databaseProvider: StandaloneDatabaseProvider by lazy {
-        StandaloneDatabaseProvider(context)
-    }
-
-    private val playbackCache: SimpleCache by lazy {
-        SimpleCache(
-            cacheManager.media3CacheDir,
-            LeastRecentlyUsedCacheEvictor(cacheManager.maxCacheBytes),
-            databaseProvider
-        )
-    }
-
     fun createDataSourceFactory(): DataSource.Factory {
         val upstreamFactory = DefaultHttpDataSource.Factory()
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(30_000)
 
-        return CacheDataSource.Factory()
-            .setCache(playbackCache)
-            .setUpstreamDataSourceFactory(DefaultDataSource.Factory(context, upstreamFactory))
-            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+        return DefaultDataSource.Factory(context, upstreamFactory)
     }
 
     fun createMediaSourceFactory(): MediaSource.Factory {

@@ -36,8 +36,18 @@ data class HlsAdRule(
     val videoTitle: String,
     val episodeTitle: String,
     val createdAtMs: Long,
-    val updatedAtMs: Long
+    val updatedAtMs: Long,
+    val hitCount: Long = 0L,
+    val lastHitAtMs: Long? = null
 )
+
+data class HlsAdRuleValidation(
+    val playlistMatches: Boolean,
+    val segmentMatches: Boolean
+) {
+    val matches: Boolean
+        get() = playlistMatches && segmentMatches
+}
 
 data class MarkedHlsAdSegment(
     val rule: HlsAdRule,
