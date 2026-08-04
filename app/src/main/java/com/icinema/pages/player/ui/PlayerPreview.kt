@@ -72,8 +72,15 @@ internal object PlayerPreviewData {
 @Composable
 private fun PlayerContentPreview() {
     iCinemaTheme {
+        val state = PlayerPreviewData.state()
         PlayerContent(
-            state = PlayerPreviewData.state(),
+            state = state,
+            chrome = state.toChromeUi(),
+            progress = PlayerContract.ProgressUi(
+                positionMs = state.currentPositionMs,
+                durationMs = state.durationMs,
+                bufferedPositionMs = state.bufferedPositionMs
+            ),
             player = null,
             onBackClick = {},
             onIntent = {},
@@ -86,8 +93,15 @@ private fun PlayerContentPreview() {
 @Composable
 private fun PlayerContentFullscreenPreview() {
     iCinemaTheme {
+        val state = PlayerPreviewData.state().copy(isFullscreen = true)
         PlayerContent(
-            state = PlayerPreviewData.state().copy(isFullscreen = true),
+            state = state,
+            chrome = state.toChromeUi(),
+            progress = PlayerContract.ProgressUi(
+                positionMs = state.currentPositionMs,
+                durationMs = state.durationMs,
+                bufferedPositionMs = state.bufferedPositionMs
+            ),
             player = null,
             onBackClick = {},
             onIntent = {},

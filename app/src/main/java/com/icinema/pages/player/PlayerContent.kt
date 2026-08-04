@@ -11,15 +11,15 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.media3.exoplayer.ExoPlayer
-import com.icinema.domain.model.PlaySource
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerContent(
     state: PlayerContract.UiState,
+    chrome: PlayerChromeUi,
+    progress: PlayerContract.ProgressUi,
     player: ExoPlayer?,
     onBackClick: () -> Unit,
     onIntent: (PlayerContract.UiIntent) -> Unit,
@@ -45,78 +45,43 @@ fun PlayerContent(
         onStopCasting = { onIntent(PlayerContract.UiIntent.StopCasting) }
     )
 
-    AutoDismissPlayerControls(state = state, onIntent = onIntent)
-    AutoAcceptResumePrompt(state = state, onIntent = onIntent)
+    AutoAcceptResumePrompt(
+        resumePositionMs = chrome.resumePositionMs,
+        onIntent = onIntent
+    )
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
         paddingValues
-        if (state.isLoading && state.video == null) {
+        if (chrome.isLoading && chrome.video == null) {
             PlayerLoadingState(modifier = Modifier.padding(paddingValues))
             return@Scaffold
         }
 
-        PlayerPage(
-            state = state,
-            player = player,
-            selectedSource = selectedSource,
-            onBackClick = onBackClick,
-            onIntent = onIntent,
-            onOpenSources = { onIntent(PlayerContract.UiIntent.OpenSheet(PlayerContract.SheetMode.Sources)) },
-            onOpenEpisodes = { onIntent(PlayerContract.UiIntent.OpenSheet(PlayerContract.SheetMode.Episodes)) }
-        )
-    }
-}
-
-@Composable
-private fun AutoDismissPlayerControls(
-    state: PlayerContract.UiState,
-    onIntent: (PlayerContract.UiIntent) -> Unit
-) {
-    LaunchedEffect(state.controlsVisible, state.isPlaying, state.activeSheetMode) {
-        if (state.controlsVisible && state.isPlaying && state.activeSheetMode == null) {
-            delay(3_000L)
-            onIntent(PlayerContract.UiIntent.ToggleControls)
+        Column(modifier = Modifier.fillMaxSize()) {
+            PlayerSurfaceSection(
+                chrome = chrome,
+                progress = progress,
+                player = player,
+                onBackClick = onBackClick,
+                onIntent = onIntent,
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }
 
 @Composable
 private fun AutoAcceptResumePrompt(
-    state: PlayerContract.UiState,
+    resumePositionMs: Long?,
     onIntent: (PlayerContract.UiIntent) -> Unit
 ) {
-    LaunchedEffect(state.resumePositionMs) {
-        if (state.resumePositionMs != null) {
+    LaunchedEffect(resumePositionMs) {
+        if (resumePositionMs != null) {
             delay(5_000L)
             onIntent(PlayerContract.UiIntent.AcceptResume)
         }
-    }
-}
-
-@Composable
-private fun PlayerPage(
-    state: PlayerContract.UiState,
-    player: ExoPlayer?,
-    selectedSource: PlaySource?,
-    onBackClick: () -> Unit,
-    onIntent: (PlayerContract.UiIntent) -> Unit,
-    onOpenSources: () -> Unit,
-    onOpenEpisodes: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-    ) {
-        PlayerSurfaceSection(
-            state = state,
-            player = player,
-            onBackClick = onBackClick,
-            onIntent = onIntent,
-            modifier = Modifier
-        )
     }
 }

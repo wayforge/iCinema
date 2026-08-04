@@ -169,22 +169,60 @@ class HlsPrefetchCoordinator @Inject constructor(
     }
 
     /**
-     * Lookahead skip: if inside or approaching an ad range whose TS are already cached, return seek target.
+     * Lookahead skip: if inside or approaching an ad range that is safe to jump, return seek target.
+     * URL/known-url ads can skip without full cache; fingerprint-only ads still require cached bytes.
      */
     fun resolveAdSkipTarget(
         playlistUrl: String,
         playbackPositionMs: Long,
         leadMs: Long = AD_SKIP_LEAD_MS
     ): HlsAdSkipRange? {
-        val ranges = buildAdSkipRanges(playlistUrl)
+        // Cheap path only — no disk hashing. Call from background thread.
+        val ranges = buildAdSkipRangesFast(playlistUrl)
         if (ranges.isEmpty()) return null
         val probe = playbackPositionMs + leadMs.coerceAtLeast(0L)
         val hit = ranges.firstOrNull { range ->
             playbackPositionMs < range.endMs && probe >= range.startMs
         } ?: return null
-        if (!hit.segmentUrls.all { cache.isCached(it) }) return null
+        if (!isSkipSafe(playlistUrl, hit)) return null
         if (playbackPositionMs >= hit.endMs - AD_SKIP_MIN_FORWARD_MS) return null
+        prioritizeResources(hit.segmentUrls)
         return hit
+    }
+
+    /**
+     * Safe to jump this range: every ad TS is either on disk, or matched by URL/known-url rules
+     * (no fingerprint bytes required). Fingerprint-only hits still need cache.
+     */
+    private fun isSkipSafe(playlistUrl: String, range: HlsAdSkipRange): Boolean {
+        val snapshot = findSnapshot(playlistUrl)
+        val mediaKey = snapshot?.playlistUrl ?: playlistUrl
+        return range.segmentUrls.all { segmentUrl ->
+            if (cache.isCached(segmentUrl)) return@all true
+            adRuleStore.matchingAdRules(
+                playlistUrl = mediaKey,
+                segmentUrl = segmentUrl,
+                contentFingerprint = null,
+                recordHits = false
+            ).isNotEmpty()
+        }
+    }
+
+    private fun prioritizeResources(urls: List<String>) {
+        if (urls.isEmpty()) return
+        val generation = episodeGeneration.get()
+        if (!isGenerationActive(generation)) return
+        synchronized(queueLock) {
+            val pending = pendingResources.toList()
+            if (pending.isEmpty()) return
+            val priority = urls.toSet()
+            val head = pending.filter { it.url in priority }
+            if (head.isEmpty()) return
+            val tail = pending.filterNot { it.url in priority }
+            pendingResources.clear()
+            head.forEach { pendingResources.addLast(it) }
+            tail.forEach { pendingResources.addLast(it) }
+        }
     }
 
     /**
@@ -249,29 +287,12 @@ class HlsPrefetchCoordinator @Inject constructor(
         val urls = snapshot.segments.map { it.url }
         if (urls.isEmpty()) return
 
-        // URL / known-url hits (no download required).
-        val matchedUrls = adRuleStore.matchingAdUrls(mediaKey, urls, recordHits = false).toMutableSet()
-
-        // Cross-video: fingerprint every cached segment against global rules.
-        snapshot.segments.forEach { segment ->
-            if (!cache.isCached(segment.url)) return@forEach
-            val fingerprint = cache.contentFingerprint(segment.url) ?: return@forEach
-            val hit = adRuleStore.matchingAdRules(
-                playlistUrl = mediaKey,
-                segmentUrl = segment.url,
-                contentFingerprint = fingerprint,
-                recordHits = false
-            )
-            if (hit.isNotEmpty()) {
-                matchedUrls.add(segment.url)
-                adRuleStore.rememberKnownAdUrl(segment.url, hit.first(), fingerprint)
-            }
-        }
+        // URL / known-url only. Fingerprints are applied when each TS finishes downloading.
+        val matchedUrls = adRuleStore.matchingAdUrls(mediaKey, urls, recordHits = false)
 
         synchronized(snapshotLock) {
             val set = adUrlsByPlaylist.getOrPut(mediaKey) { mutableSetOf() }
             matchedUrls.forEach { set.add(normalizeUrl(it)) }
-            // Mirror under root key for master-url lookups.
             if (playlistUrl != mediaKey) {
                 val rootSet = adUrlsByPlaylist.getOrPut(playlistUrl) { mutableSetOf() }
                 matchedUrls.forEach { rootSet.add(normalizeUrl(it)) }
@@ -287,10 +308,13 @@ class HlsPrefetchCoordinator @Inject constructor(
         }
     }
 
-    private fun buildAdSkipRanges(playlistUrl: String): List<HlsAdSkipRange> {
+    /**
+     * Fast skip ranges for the playback loop: marked URLs + URL rules only.
+     * No SHA-256 of TS bodies (that belongs to download/classify workers).
+     */
+    private fun buildAdSkipRangesFast(playlistUrl: String): List<HlsAdSkipRange> {
         val snapshot = findSnapshot(playlistUrl) ?: return emptyList()
-        // Ensure cached segments are classified before building ranges (cross-video fingerprints).
-        refreshAdMarksForCachedSegmentsLight(snapshot)
+        if (snapshot.segments.isEmpty()) return emptyList()
 
         val adUrls = synchronized(snapshotLock) {
             val keys = listOfNotNull(
@@ -300,7 +324,6 @@ class HlsPrefetchCoordinator @Inject constructor(
             ).distinct()
             keys.flatMap { key -> adUrlsByPlaylist[key].orEmpty() }.toSet()
         }
-        if (snapshot.segments.isEmpty()) return emptyList()
 
         val ranges = mutableListOf<HlsAdSkipRange>()
         var runStart: Double? = null
@@ -328,7 +351,7 @@ class HlsPrefetchCoordinator @Inject constructor(
             val start = segment.startSeconds ?: return@forEach
             val duration = segment.durationSeconds ?: 0.0
             val end = start + duration
-            val isAd = isSegmentAd(snapshot.playlistUrl, segment.url, adUrls)
+            val isAd = isSegmentAdFast(snapshot.playlistUrl, segment.url, adUrls)
             if (isAd) {
                 if (runStart == null) runStart = start
                 runEnd = end
@@ -341,40 +364,13 @@ class HlsPrefetchCoordinator @Inject constructor(
         return ranges
     }
 
-    /**
-     * Light path used inside range build: only hash segments not already marked.
-     */
-    private fun refreshAdMarksForCachedSegmentsLight(snapshot: HlsPlaylistSnapshot) {
-        val existing = synchronized(snapshotLock) {
-            adUrlsByPlaylist[snapshot.playlistUrl]?.toSet().orEmpty()
-        }
-        snapshot.segments.forEach { segment ->
-            val key = normalizeUrl(segment.url)
-            if (key in existing) return@forEach
-            if (!cache.isCached(segment.url)) return@forEach
-            classifyDownloadedSegment(snapshot.playlistUrl, segment.url)
-        }
-    }
-
-    private fun isSegmentAd(
+    private fun isSegmentAdFast(
         playlistUrl: String,
         segmentUrl: String,
         markedAdUrls: Set<String>
     ): Boolean {
         if (normalizeUrl(segmentUrl) in markedAdUrls) return true
-        // URL / known-url without fingerprint (cheap).
-        if (adRuleStore.matchingAdRules(playlistUrl, segmentUrl, null, false).isNotEmpty()) {
-            return true
-        }
-        // Global fingerprint when bytes are already on disk.
-        if (!cache.isCached(segmentUrl)) return false
-        val fingerprint = cache.contentFingerprint(segmentUrl) ?: return false
-        return adRuleStore.matchingAdRules(
-            playlistUrl = playlistUrl,
-            segmentUrl = segmentUrl,
-            contentFingerprint = fingerprint,
-            recordHits = false
-        ).isNotEmpty()
+        return adRuleStore.matchingAdRules(playlistUrl, segmentUrl, null, false).isNotEmpty()
     }
 
     private fun findSnapshot(playlistUrl: String): HlsPlaylistSnapshot? {
@@ -495,7 +491,7 @@ class HlsPrefetchCoordinator @Inject constructor(
         return generation == 0L || generation == episodeGeneration.get()
     }
 
-    private fun drainResourceQueue() {
+    private suspend fun drainResourceQueue() {
         while (true) {
             val item = synchronized(queueLock) {
                 while (pendingResources.isNotEmpty()) {
@@ -529,6 +525,8 @@ class HlsPrefetchCoordinator @Inject constructor(
                 Log.d(TAG, "prefetch resource failed url=${item.url} error=${error.message}")
             }
             inFlight.remove(item.url)
+            // Yield so playback HTTP is not starved by full-episode precache.
+            delay(PRECACHE_ITEM_YIELD_MS)
         }
         synchronized(queueLock) {
             resourceWorkerRunning = false
@@ -601,7 +599,9 @@ class HlsPrefetchCoordinator @Inject constructor(
         private const val LIVE_WINDOW_RESOURCE_LIMIT = 40
         private const val MAX_PLAYLIST_DEPTH = 2
         private const val SNAPSHOT_LIMIT = 32
-        private const val AD_SKIP_LEAD_MS = 600L
+        /** Seek well before ad start so decoder never renders ad frames. */
+        private const val AD_SKIP_LEAD_MS = 3_500L
         private const val AD_SKIP_MIN_FORWARD_MS = 250L
+        private const val PRECACHE_ITEM_YIELD_MS = 80L
     }
 }

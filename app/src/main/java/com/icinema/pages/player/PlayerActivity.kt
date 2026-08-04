@@ -126,6 +126,8 @@ private fun PlayerScreen(
     onBackClick: () -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
+    val chrome by viewModel.chromeUi.collectAsState()
+    val progress by viewModel.progress.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -177,6 +179,8 @@ private fun PlayerScreen(
 
     PlayerContent(
         state = state,
+        chrome = chrome,
+        progress = progress,
         player = viewModel.player,
         snackbarHostState = snackbarHostState,
         onBackClick = onBackClick,

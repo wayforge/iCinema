@@ -16,6 +16,7 @@ import com.icinema.pages.player.core.hls.HlsSessionManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -23,13 +24,19 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
 
-private const val AD_DETECTION_CHECK_INTERVAL_MS = 400L
-private const val PROGRESS_SAVE_INTERVAL_TICKS = 5
-private const val AD_DETECTION_DEDUP_WINDOW_MS = 8_000L
+private const val PROGRESS_LOOP_INTERVAL_MS = 500L
+private const val PROGRESS_SAVE_INTERVAL_TICKS = 10
+private const val AD_DETECTION_DEDUP_WINDOW_MS = 30_000L
 private const val AD_SKIP_MIN_FORWARD_MS = 250L
 
 @HiltViewModel
@@ -46,6 +53,18 @@ class PlayerViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(PlayerContract.UiState())
     val uiState: StateFlow<PlayerContract.UiState> = _uiState.asStateFlow()
 
+    private val _progress = MutableStateFlow(PlayerContract.ProgressUi())
+    val progress: StateFlow<PlayerContract.ProgressUi> = _progress.asStateFlow()
+
+    /**
+     * Structural player chrome without high-frequency clock fields.
+     * Position ticks must not invalidate this flow.
+     */
+    val chromeUi: StateFlow<PlayerChromeUi> = uiState
+        .map { it.toChromeUi() }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), _uiState.value.toChromeUi())
+
     private val _uiEffect = Channel<PlayerContract.UiEffect>()
     val uiEffect: Flow<PlayerContract.UiEffect> = _uiEffect.receiveAsFlow()
 
@@ -60,6 +79,7 @@ class PlayerViewModel @Inject constructor(
     private var shouldRefreshHomeOnExit: Boolean = false
     private var lastDetectedAdSegmentUrl: String? = null
     private var lastDetectedAdAtMs: Long = 0L
+    private val scrubbing = AtomicBoolean(false)
 
     private val playerListener = object : Media3Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
@@ -68,7 +88,7 @@ class PlayerViewModel @Inject constructor(
             commit(PlayerContract.Mutation.PlaybackChanged(isPlaying, isBuffering))
 
             if (playbackState == Media3Player.STATE_READY) {
-                updatePlaybackPosition()
+                publishProgress(force = true)
             }
 
             if (playbackState == Media3Player.STATE_ENDED) {
@@ -99,12 +119,15 @@ class PlayerViewModel @Inject constructor(
                     val currentEpisode = source?.episodes?.getOrNull(state.selectedEpisodeIndex)
                     if (source != null && currentEpisode != null) {
                         emitEffect(PlayerContract.UiEffect.ShowMessage("播放链路异常，正在重试当前剧集"))
-                        prepareEpisode(
-                            sourceKey = source.key,
-                            episode = currentEpisode,
-                            seekPositionMs = player.currentPosition.coerceAtLeast(0L),
-                            playWhenReady = true
-                        )
+                        val seekMs = player.currentPosition.coerceAtLeast(0L)
+                        viewModelScope.launch {
+                            prepareEpisode(
+                                sourceKey = source.key,
+                                episode = currentEpisode,
+                                seekPositionMs = seekMs,
+                                playWhenReady = true
+                            )
+                        }
                         return
                     }
                 }
@@ -125,6 +148,13 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             castController.state.collect { castState ->
                 commit(PlayerContract.Mutation.CastStateChanged(castState))
+                if (castState.isCasting) {
+                    _progress.value = PlayerContract.ProgressUi(
+                        positionMs = castState.currentPositionMs,
+                        durationMs = castState.durationMs.coerceAtLeast(0L),
+                        bufferedPositionMs = castState.currentPositionMs
+                    )
+                }
             }
         }
         viewModelScope.launch {
@@ -149,7 +179,7 @@ class PlayerViewModel @Inject constructor(
                     seekCastTo(intent.positionMs)
                 } else {
                     player.seekTo(intent.positionMs)
-                    updatePlaybackPosition()
+                    publishProgress(force = true)
                 }
             }
 
@@ -161,12 +191,16 @@ class PlayerViewModel @Inject constructor(
             PlayerContract.UiIntent.PlayPrevious -> playPrevious()
             PlayerContract.UiIntent.Retry -> retry()
             PlayerContract.UiIntent.ToggleControls -> {
-                if (!_uiState.value.controlsLocked) {
-                    commit(
-                        PlayerContract.Mutation.ControlsVisibilityChanged(
-                            !_uiState.value.controlsVisible
-                        )
+                commit(
+                    PlayerContract.Mutation.ControlsVisibilityChanged(
+                        !_uiState.value.controlsVisible
                     )
+                )
+            }
+
+            is PlayerContract.UiIntent.SetControlsVisible -> {
+                if (_uiState.value.controlsVisible != intent.visible) {
+                    commit(PlayerContract.Mutation.ControlsVisibilityChanged(intent.visible))
                 }
             }
 
@@ -193,7 +227,6 @@ class PlayerViewModel @Inject constructor(
             PlayerContract.UiIntent.RestartFromBeginning -> restartFromBeginning()
             is PlayerContract.UiIntent.SetPlaybackSpeed -> setPlaybackSpeed(intent.speed)
             PlayerContract.UiIntent.ToggleAutoPlayNext -> toggleAutoPlayNext()
-            PlayerContract.UiIntent.ToggleControlsLock -> toggleControlsLock()
             PlayerContract.UiIntent.ToggleGestureSeek -> toggleGestureSeek()
             PlayerContract.UiIntent.MarkCurrentSegmentAsAd -> markCurrentSegmentAsAd()
             is PlayerContract.UiIntent.GestureSeek -> seekBy(intent.deltaMs)
@@ -206,6 +239,12 @@ class PlayerViewModel @Inject constructor(
             PlayerContract.UiIntent.DismissPlayerToast -> {
                 commit(PlayerContract.Mutation.PlayerToastChanged(null))
             }
+
+            PlayerContract.UiIntent.ScrubStarted -> scrubbing.set(true)
+            PlayerContract.UiIntent.ScrubEnded -> {
+                scrubbing.set(false)
+                publishProgress(force = true)
+            }
         }
     }
 
@@ -213,7 +252,10 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             commit(PlayerContract.Mutation.LoadStarted(videoId, requestedSourceKey, requestedEpisodeIndex))
 
-            bizPort.loadVideo(videoId)
+            val loadResult = withContext(Dispatchers.IO) {
+                bizPort.loadVideo(videoId)
+            }
+            loadResult
                 .onSuccess { video ->
                     val sources = video.toPlaySources()
                     if (sources.isEmpty()) {
@@ -238,11 +280,13 @@ class PlayerViewModel @Inject constructor(
                         ) { selectedSource.episodes.first() }
                     }
 
-                    val resumePosition = loadResumePosition(
-                        videoId = videoId,
-                        sourceKey = selectedSource.key,
-                        episodeIndex = selectedEpisode.index
-                    )
+                    val resumePosition = withContext(Dispatchers.IO) {
+                        loadResumePosition(
+                            videoId = videoId,
+                            sourceKey = selectedSource.key,
+                            episodeIndex = selectedEpisode.index
+                        )
+                    }
 
                     commit(
                         PlayerContract.Mutation.LoadSucceeded(
@@ -272,11 +316,14 @@ class PlayerViewModel @Inject constructor(
         ) { source.episodes.first() }
 
         viewModelScope.launch {
-            val resumePosition = loadResumePosition(
-                videoId = state.videoId ?: return@launch,
-                sourceKey = source.key,
-                episodeIndex = nextEpisode.index
-            )
+            val videoId = state.videoId ?: return@launch
+            val resumePosition = withContext(Dispatchers.IO) {
+                loadResumePosition(
+                    videoId = videoId,
+                    sourceKey = source.key,
+                    episodeIndex = nextEpisode.index
+                )
+            }
             commit(
                 PlayerContract.Mutation.SourceSelected(
                     sourceKey = source.key,
@@ -302,11 +349,14 @@ class PlayerViewModel @Inject constructor(
         val episode = source.episodes.getOrNull(episodeIndex) ?: return
 
         viewModelScope.launch {
-            val resumePosition = loadResumePosition(
-                videoId = state.videoId ?: return@launch,
-                sourceKey = source.key,
-                episodeIndex = episode.index
-            )
+            val videoId = state.videoId ?: return@launch
+            val resumePosition = withContext(Dispatchers.IO) {
+                loadResumePosition(
+                    videoId = videoId,
+                    sourceKey = source.key,
+                    episodeIndex = episode.index
+                )
+            }
             commit(
                 PlayerContract.Mutation.EpisodeSelected(
                     episodeIndex = episode.index,
@@ -356,24 +406,28 @@ class PlayerViewModel @Inject constructor(
                     return
                 }
                 retriedPlaybackKey = null
-                prepareEpisode(
-                    sourceKey = state.selectedSourceKey,
-                    episode = state.currentEpisode,
-                    seekPositionMs = state.resumePositionMs
-                )
+                viewModelScope.launch {
+                    prepareEpisode(
+                        sourceKey = state.selectedSourceKey,
+                        episode = state.currentEpisode,
+                        seekPositionMs = state.resumePositionMs
+                    )
+                }
             }
         }
     }
 
     private fun togglePlayPause() {
         if (_uiState.value.castState.isCasting) {
-            viewModelScope.launch {
+            viewModelScope.launch(Dispatchers.IO) {
                 val result = if (_uiState.value.castState.isPlaying) {
                     castController.pause()
                 } else {
                     castController.play()
                 }
-                result.onFailure { emitEffect(PlayerContract.UiEffect.ShowMessage(it.message ?: "投屏控制失败")) }
+                result.onFailure {
+                    emitEffect(PlayerContract.UiEffect.ShowMessage(it.message ?: "投屏控制失败"))
+                }
             }
             return
         }
@@ -393,10 +447,13 @@ class PlayerViewModel @Inject constructor(
 
         val newPosition = (player.currentPosition + deltaMs).coerceIn(0L, player.duration.coerceAtLeast(0L))
         player.seekTo(newPosition)
-        updatePlaybackPosition()
+        publishProgress(force = true)
     }
 
-    private fun prepareEpisode(
+    /**
+     * Heavy HLS session prep on IO; ExoPlayer mutations only on Main.
+     */
+    private suspend fun prepareEpisode(
         sourceKey: String,
         episode: com.icinema.domain.model.PlayableEpisode,
         seekPositionMs: Long?,
@@ -412,31 +469,42 @@ class PlayerViewModel @Inject constructor(
         commit(PlayerContract.Mutation.ErrorChanged(null))
         lastDetectedAdSegmentUrl = null
         lastDetectedAdAtMs = 0L
-        preloadCoordinator.clearFor(
-            videoId = _uiState.value.videoId ?: 0L,
-            sourceKey = sourceKey,
-            episodeIndex = episode.index
-        )
-        val playbackUrl = runCatching { hlsSessionManager.preparePlaybackUrl(episode.url) }
-            .getOrElse { episode.url }
-        player.stop()
-        player.setMediaItem(
-            MediaItem.Builder()
-                .setUri(playbackUrl)
-                .setMimeType(MimeTypes.APPLICATION_M3U8)
-                .build()
-        )
-        player.prepare()
-        if ((seekPositionMs ?: 0L) > 0L) {
-            player.seekTo(seekPositionMs ?: 0L)
-        }
-        player.playWhenReady = playWhenReady
+        val videoId = _uiState.value.videoId ?: 0L
 
-        schedulePreload(
-            videoId = _uiState.value.videoId ?: return,
-            sourceKey = sourceKey,
-            currentEpisodeIndex = episode.index
-        )
+        val playbackUrl = withContext(Dispatchers.IO) {
+            preloadCoordinator.clearFor(
+                videoId = videoId,
+                sourceKey = sourceKey,
+                episodeIndex = episode.index
+            )
+            runCatching { hlsSessionManager.preparePlaybackUrl(episode.url) }
+                .getOrElse { episode.url }
+        }
+
+        withContext(Dispatchers.Main.immediate) {
+            player.stop()
+            player.setMediaItem(
+                MediaItem.Builder()
+                    .setUri(playbackUrl)
+                    .setMimeType(MimeTypes.APPLICATION_M3U8)
+                    .build()
+            )
+            player.prepare()
+            if ((seekPositionMs ?: 0L) > 0L) {
+                player.seekTo(seekPositionMs ?: 0L)
+            }
+            player.playWhenReady = playWhenReady
+        }
+
+        if (videoId != 0L) {
+            withContext(Dispatchers.IO) {
+                schedulePreload(
+                    videoId = videoId,
+                    sourceKey = sourceKey,
+                    currentEpisodeIndex = episode.index
+                )
+            }
+        }
     }
 
     private fun schedulePreload(videoId: Long, sourceKey: String, currentEpisodeIndex: Int) {
@@ -467,8 +535,15 @@ class PlayerViewModel @Inject constructor(
         if (!_uiState.value.castState.isCasting) {
             player.pause()
         }
+        // Capture clock on main (this is already main), then persist off-main.
+        val positionMs = player.currentPosition.coerceAtLeast(0L)
+        val durationMs = player.duration.coerceAtLeast(0L)
         viewModelScope.launch {
-            saveCurrentProgress(clearCompleted = false)
+            saveCurrentProgress(
+                clearCompleted = false,
+                positionMs = positionMs,
+                durationMs = durationMs
+            )
         }
     }
 
@@ -481,7 +556,7 @@ class PlayerViewModel @Inject constructor(
     private fun restartFromBeginning() {
         player.seekTo(0L)
         commit(PlayerContract.Mutation.ResumePositionChanged(null))
-        updatePlaybackPosition()
+        publishProgress(force = true)
     }
 
     private fun setPlaybackSpeed(speed: Float) {
@@ -495,12 +570,6 @@ class PlayerViewModel @Inject constructor(
         val next = !_uiState.value.autoPlayNextEnabled
         commit(PlayerContract.Mutation.AutoPlayNextChanged(next))
         persistPlayerSettings()
-    }
-
-    private fun toggleControlsLock() {
-        val nextLocked = !_uiState.value.controlsLocked
-        commit(PlayerContract.Mutation.ControlsLockedChanged(nextLocked))
-        commit(PlayerContract.Mutation.ControlsVisibilityChanged(true))
     }
 
     private fun toggleGestureSeek() {
@@ -520,14 +589,20 @@ class PlayerViewModel @Inject constructor(
             val playbackPositionMs = if (state.castState.isCasting) {
                 state.currentPositionMs
             } else {
-                player.currentPosition.coerceAtLeast(state.currentPositionMs)
+                withContext(Dispatchers.Main.immediate) {
+                    player.currentPosition.coerceAtLeast(state.currentPositionMs)
+                }
             }
-            hlsSessionManager.markCurrentSegmentAsAd(
-                originUrl = episode.url,
-                playbackPositionMs = playbackPositionMs,
-                videoTitle = state.video?.name.orEmpty(),
-                episodeTitle = episode.title
-            ).onSuccess { markedSegment ->
+            // Download/hash TS on IO — never on main.
+            val result = withContext(Dispatchers.IO) {
+                hlsSessionManager.markCurrentSegmentAsAd(
+                    originUrl = episode.url,
+                    playbackPositionMs = playbackPositionMs,
+                    videoTitle = state.video?.name.orEmpty(),
+                    episodeTitle = episode.title
+                )
+            }
+            result.onSuccess { markedSegment ->
                 showPlayerToast(markedSegment.message)
             }.onFailure { error ->
                 showPlayerToast(error.message ?: "广告标记失败")
@@ -537,7 +612,7 @@ class PlayerViewModel @Inject constructor(
 
     private fun persistPlayerSettings() {
         val state = _uiState.value
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             bizPort.savePlayerSettings(
                 PlayerSettings(
                     playbackSpeed = state.playbackSpeed,
@@ -548,40 +623,66 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    private fun updatePlaybackPosition() {
+    /**
+     * Publish clock to [progress] only. Avoids heavy HLS buffer scans on the UI path.
+     */
+    private fun publishProgress(force: Boolean = false) {
         if (_uiState.value.castState.isCasting) return
+        if (!force && scrubbing.get()) return
         val positionMs = player.currentPosition.coerceAtLeast(0L)
         val exoBuffered = player.bufferedPosition.coerceAtLeast(0L)
-        val episodeUrl = _uiState.value.currentEpisode?.url
-        val prefetchBuffered = if (episodeUrl != null) {
-            runCatching {
-                hlsSessionManager.prefetchBufferedUntilMs(episodeUrl, positionMs)
-            }.getOrDefault(positionMs)
-        } else {
-            positionMs
-        }
-        commit(
-            PlayerContract.Mutation.PositionChanged(
-                currentPositionMs = positionMs,
-                durationMs = player.duration.coerceAtLeast(0L),
-                bufferedPositionMs = maxOf(exoBuffered, prefetchBuffered)
-            )
+        val next = PlayerContract.ProgressUi(
+            positionMs = positionMs,
+            durationMs = player.duration.coerceAtLeast(0L),
+            bufferedPositionMs = exoBuffered
         )
+        if (force || next != _progress.value) {
+            _progress.value = next
+        }
+        // Coarse uiState copy for save/cast helpers only.
+        val state = _uiState.value
+        if (
+            force ||
+            kotlin.math.abs(state.currentPositionMs - next.positionMs) >= 2_000L ||
+            state.durationMs != next.durationMs
+        ) {
+            commit(
+                PlayerContract.Mutation.PositionChanged(
+                    currentPositionMs = next.positionMs,
+                    durationMs = next.durationMs,
+                    bufferedPositionMs = next.bufferedPositionMs
+                )
+            )
+        }
     }
 
     private fun startProgressUpdates() {
         if (progressJob?.isActive == true) return
-        progressJob = viewModelScope.launch {
+        // Entire loop on Default: main only receives lightweight state / seek results.
+        progressJob = viewModelScope.launch(Dispatchers.Default) {
             var saveTick = 0
             while (isActive) {
-                updatePlaybackPosition()
-                detectAndSkipAdIfNeeded()
+                val snapshot = capturePlaybackSnapshot()
+                if (snapshot != null) {
+                    publishProgressFromSnapshot(snapshot)
+                    val skipAction = resolveAdSkipAction(snapshot)
+                    if (skipAction != null) {
+                        val recorded = prepareAdSkipRecord(skipAction)
+                        withContext(Dispatchers.Main.immediate) {
+                            applyAdSkipOnMain(skipAction, recorded)
+                        }
+                    }
+                }
                 saveTick += 1
-                if (saveTick >= PROGRESS_SAVE_INTERVAL_TICKS) {
-                    saveCurrentProgress(clearCompleted = false)
+                if (saveTick >= PROGRESS_SAVE_INTERVAL_TICKS && snapshot != null) {
+                    saveCurrentProgress(
+                        clearCompleted = false,
+                        positionMs = snapshot.positionMs,
+                        durationMs = snapshot.durationMs
+                    )
                     saveTick = 0
                 }
-                delay(AD_DETECTION_CHECK_INTERVAL_MS)
+                delay(PROGRESS_LOOP_INTERVAL_MS)
             }
         }
     }
@@ -591,78 +692,155 @@ class PlayerViewModel @Inject constructor(
         progressJob = null
     }
 
-    /**
-     * Lookahead skip: only after ad TS are already cached (CDN chain safe).
-     * Falls back to in-segment detection when already inside an ad.
-     */
-    private fun detectAndSkipAdIfNeeded() {
+    private data class PlaybackSnapshot(
+        val positionMs: Long,
+        val durationMs: Long,
+        val bufferedMs: Long,
+        val episodeUrl: String,
+        val episodeTitle: String,
+        val videoTitle: String,
+        val isCasting: Boolean,
+        val isHls: Boolean
+    )
+
+    private data class AdSkipAction(
+        val seekToMs: Long,
+        val dedupeKey: String,
+        val recordOriginPositionMs: Long,
+        val episodeUrl: String,
+        val episodeTitle: String,
+        val videoTitle: String,
+        val showToast: Boolean
+    )
+
+    private data class AdSkipRecord(
+        val candidate: com.icinema.pages.player.core.hls.HlsAdDetectionCandidate?
+    )
+
+    /** Player getters must run on main. */
+    private suspend fun capturePlaybackSnapshot(): PlaybackSnapshot? {
         val state = _uiState.value
-        val episode = state.currentEpisode ?: return
-        if (state.castState.isCasting || !episode.isHls) return
-
-        val playbackPositionMs = player.currentPosition.coerceAtLeast(0L)
-        val now = System.currentTimeMillis()
-
-        // Prefer timeline lookahead (skip before/while entering ad, once ad bytes are cached).
-        val skipRange = hlsSessionManager.resolveAdSkipTarget(episode.url, playbackPositionMs)
-        if (skipRange != null && skipRange.endMs > playbackPositionMs + AD_SKIP_MIN_FORWARD_MS) {
-            val rangeKey = "range:${skipRange.startMs}-${skipRange.endMs}"
-            val isDuplicate =
-                rangeKey == lastDetectedAdSegmentUrl &&
-                    now - lastDetectedAdAtMs <= AD_DETECTION_DEDUP_WINDOW_MS
-            if (!isDuplicate) {
-                // Record hit on the first ad segment of the range when possible.
-                val candidate = hlsSessionManager.resolveAdDetectionCandidate(
-                    originUrl = episode.url,
-                    playbackPositionMs = maxOf(playbackPositionMs, skipRange.startMs),
-                    recordHit = true
-                )
-                if (candidate != null) {
-                    hlsSessionManager.recordDetectedSegment(
-                        candidate = candidate,
-                        videoTitle = state.video?.name.orEmpty(),
-                        episodeTitle = episode.title
-                    )
-                }
-                lastDetectedAdSegmentUrl = rangeKey
-                lastDetectedAdAtMs = now
-                player.seekTo(skipRange.endMs)
-                updatePlaybackPosition()
-                showPlayerToast("已跳过广告")
-            }
-            return
-        }
-
-        // Fallback: currently on an ad segment that just became identifiable.
-        val candidate = hlsSessionManager.resolveAdDetectionCandidate(
-            originUrl = episode.url,
-            playbackPositionMs = playbackPositionMs,
-            recordHit = false
-        ) ?: return
-        val isDuplicate =
-            candidate.segmentUrl == lastDetectedAdSegmentUrl &&
-                now - lastDetectedAdAtMs <= AD_DETECTION_DEDUP_WINDOW_MS
-        val endMs = candidate.segmentEndPositionMs
-            ?: (playbackPositionMs + ((candidate.rule.durationSeconds ?: 0.0) * 1000).toLong())
-        if (endMs <= playbackPositionMs + AD_SKIP_MIN_FORWARD_MS) return
-
-        if (!isDuplicate) {
-            val recorded = hlsSessionManager.resolveAdDetectionCandidate(
-                originUrl = episode.url,
-                playbackPositionMs = playbackPositionMs,
-                recordHit = true
-            ) ?: candidate
-            hlsSessionManager.recordDetectedSegment(
-                candidate = recorded,
+        val episode = state.currentEpisode ?: return null
+        if (state.castState.isCasting) return null
+        return withContext(Dispatchers.Main.immediate) {
+            PlaybackSnapshot(
+                positionMs = player.currentPosition.coerceAtLeast(0L),
+                durationMs = player.duration.coerceAtLeast(0L),
+                bufferedMs = player.bufferedPosition.coerceAtLeast(0L),
+                episodeUrl = episode.url,
+                episodeTitle = episode.title,
                 videoTitle = state.video?.name.orEmpty(),
-                episodeTitle = episode.title
+                isCasting = state.castState.isCasting,
+                isHls = episode.isHls
             )
         }
-        player.seekTo(endMs)
-        lastDetectedAdSegmentUrl = candidate.segmentUrl
-        lastDetectedAdAtMs = now
-        updatePlaybackPosition()
-        showPlayerToast("已跳过广告")
+    }
+
+    private fun publishProgressFromSnapshot(snapshot: PlaybackSnapshot, force: Boolean = false) {
+        if (scrubbing.get() && !force) return
+        val next = PlayerContract.ProgressUi(
+            positionMs = snapshot.positionMs,
+            durationMs = snapshot.durationMs,
+            bufferedPositionMs = snapshot.bufferedMs
+        )
+        if (force || next != _progress.value) {
+            _progress.value = next
+        }
+        val state = _uiState.value
+        if (
+            force ||
+            kotlin.math.abs(state.currentPositionMs - next.positionMs) >= 2_000L ||
+            state.durationMs != next.durationMs
+        ) {
+            commit(
+                PlayerContract.Mutation.PositionChanged(
+                    currentPositionMs = next.positionMs,
+                    durationMs = next.durationMs,
+                    bufferedPositionMs = next.bufferedPositionMs
+                )
+            )
+        }
+    }
+
+    /**
+     * Background-only resolve. No ExoPlayer calls, no UI commits.
+     * Each ad range is acted on at most once (dedupe) to avoid seek storms.
+     */
+    private fun resolveAdSkipAction(snapshot: PlaybackSnapshot): AdSkipAction? {
+        if (snapshot.isCasting || !snapshot.isHls) return null
+        val playbackPositionMs = snapshot.positionMs
+        val now = System.currentTimeMillis()
+
+        val skipRange = hlsSessionManager.resolveAdSkipTarget(snapshot.episodeUrl, playbackPositionMs)
+        if (skipRange != null && skipRange.endMs > playbackPositionMs + AD_SKIP_MIN_FORWARD_MS) {
+            val rangeKey = "range:${skipRange.startMs}-${skipRange.endMs}"
+            if (
+                rangeKey == lastDetectedAdSegmentUrl &&
+                now - lastDetectedAdAtMs <= AD_DETECTION_DEDUP_WINDOW_MS
+            ) {
+                return null
+            }
+            return AdSkipAction(
+                seekToMs = skipRange.endMs,
+                dedupeKey = rangeKey,
+                recordOriginPositionMs = maxOf(playbackPositionMs, skipRange.startMs),
+                episodeUrl = snapshot.episodeUrl,
+                episodeTitle = snapshot.episodeTitle,
+                videoTitle = snapshot.videoTitle,
+                showToast = true
+            )
+        }
+
+        val candidate = hlsSessionManager.resolveAdDetectionCandidate(
+            originUrl = snapshot.episodeUrl,
+            playbackPositionMs = playbackPositionMs,
+            recordHit = false
+        ) ?: return null
+        if (
+            candidate.segmentUrl == lastDetectedAdSegmentUrl &&
+            now - lastDetectedAdAtMs <= AD_DETECTION_DEDUP_WINDOW_MS
+        ) {
+            return null
+        }
+        val endMs = candidate.segmentEndPositionMs
+            ?: (playbackPositionMs + ((candidate.rule.durationSeconds ?: 0.0) * 1000).toLong())
+        if (endMs <= playbackPositionMs + AD_SKIP_MIN_FORWARD_MS) return null
+        return AdSkipAction(
+            seekToMs = endMs,
+            dedupeKey = candidate.segmentUrl,
+            recordOriginPositionMs = playbackPositionMs,
+            episodeUrl = snapshot.episodeUrl,
+            episodeTitle = snapshot.episodeTitle,
+            videoTitle = snapshot.videoTitle,
+            showToast = true
+        )
+    }
+
+    private fun prepareAdSkipRecord(action: AdSkipAction): AdSkipRecord {
+        lastDetectedAdSegmentUrl = action.dedupeKey
+        lastDetectedAdAtMs = System.currentTimeMillis()
+        val candidate = hlsSessionManager.resolveAdDetectionCandidate(
+            originUrl = action.episodeUrl,
+            playbackPositionMs = action.recordOriginPositionMs,
+            recordHit = true
+        )
+        if (candidate != null) {
+            hlsSessionManager.recordDetectedSegment(
+                candidate = candidate,
+                videoTitle = action.videoTitle,
+                episodeTitle = action.episodeTitle
+            )
+        }
+        return AdSkipRecord(candidate)
+    }
+
+    /** Main-thread only: ExoPlayer seek + UI toast/progress. Recording already done off-main. */
+    private fun applyAdSkipOnMain(action: AdSkipAction, @Suppress("UNUSED_PARAMETER") record: AdSkipRecord) {
+        player.seekTo(action.seekToMs)
+        publishProgress(force = true)
+        if (action.showToast) {
+            showPlayerToast("已跳过广告")
+        }
     }
 
     private fun showPlayerToast(message: String) {
@@ -684,19 +862,24 @@ class PlayerViewModel @Inject constructor(
 
     private fun castToDevice(deviceId: String) {
         viewModelScope.launch {
-            val media = buildCurrentCastMedia() ?: run {
+            val media = withContext(Dispatchers.IO) {
+                buildCurrentCastMedia()
+            } ?: run {
                 emitEffect(PlayerContract.UiEffect.ShowMessage("当前视频不能投屏"))
                 return@launch
             }
-            castController.cast(deviceId, media)
-                .onSuccess {
+            val result = withContext(Dispatchers.IO) {
+                castController.cast(deviceId, media)
+            }
+            result.onSuccess {
+                withContext(Dispatchers.Main.immediate) {
                     player.pause()
-                    startCastProgressUpdates()
-                    emitEffect(PlayerContract.UiEffect.ShowMessage("已开始投屏"))
                 }
-                .onFailure { error ->
-                    emitEffect(PlayerContract.UiEffect.ShowMessage(error.message ?: "投屏失败"))
-                }
+                startCastProgressUpdates()
+                emitEffect(PlayerContract.UiEffect.ShowMessage("已开始投屏"))
+            }.onFailure { error ->
+                emitEffect(PlayerContract.UiEffect.ShowMessage(error.message ?: "投屏失败"))
+            }
         }
     }
 
@@ -708,32 +891,35 @@ class PlayerViewModel @Inject constructor(
     private fun seekCastTo(positionMs: Long) {
         val duration = _uiState.value.durationMs.coerceAtLeast(0L)
         val target = if (duration > 0L) positionMs.coerceIn(0L, duration) else positionMs.coerceAtLeast(0L)
-        viewModelScope.launch {
+        viewModelScope.launch(Dispatchers.IO) {
             castController.seekTo(target)
-                .onFailure { emitEffect(PlayerContract.UiEffect.ShowMessage(it.message ?: "投屏控制失败")) }
+                .onFailure {
+                    emitEffect(PlayerContract.UiEffect.ShowMessage(it.message ?: "投屏控制失败"))
+                }
         }
     }
 
     private fun stopCasting() {
         viewModelScope.launch {
-            castController.stopCasting()
-                .onSuccess { remotePosition ->
-                    stopCastProgressUpdates()
-                    val state = _uiState.value
-                    val episode = state.currentEpisode
-                    if (episode != null && state.selectedSourceKey != null) {
-                        prepareEpisode(
-                            sourceKey = state.selectedSourceKey,
-                            episode = episode,
-                            seekPositionMs = remotePosition ?: state.currentPositionMs,
-                            playWhenReady = true
-                        )
-                    }
-                    emitEffect(PlayerContract.UiEffect.ShowMessage("已停止投屏"))
+            val result = withContext(Dispatchers.IO) {
+                castController.stopCasting()
+            }
+            result.onSuccess { remotePosition ->
+                stopCastProgressUpdates()
+                val state = _uiState.value
+                val episode = state.currentEpisode
+                if (episode != null && state.selectedSourceKey != null) {
+                    prepareEpisode(
+                        sourceKey = state.selectedSourceKey,
+                        episode = episode,
+                        seekPositionMs = remotePosition ?: state.currentPositionMs,
+                        playWhenReady = true
+                    )
                 }
-                .onFailure { error ->
-                    emitEffect(PlayerContract.UiEffect.ShowMessage(error.message ?: "停止投屏失败"))
-                }
+                emitEffect(PlayerContract.UiEffect.ShowMessage("已停止投屏"))
+            }.onFailure { error ->
+                emitEffect(PlayerContract.UiEffect.ShowMessage(error.message ?: "停止投屏失败"))
+            }
         }
     }
 
@@ -771,40 +957,55 @@ class PlayerViewModel @Inject constructor(
         )
     }
 
-    private suspend fun saveCurrentProgress(clearCompleted: Boolean) {
+    /**
+     * Never touch [player] here — callers must pass clock values already read on Main,
+     * or leave them null to use [progress]/[uiState] snapshots only.
+     */
+    private suspend fun saveCurrentProgress(
+        clearCompleted: Boolean,
+        positionMs: Long? = null,
+        durationMs: Long? = null
+    ) {
         val state = _uiState.value
         val videoId = state.videoId ?: return
         val sourceKey = state.selectedSourceKey ?: return
         val episode = state.currentEpisode ?: return
 
         if (clearCompleted) {
-            bizPort.markProgressCompleted(videoId, sourceKey, episode.index)
+            withContext(Dispatchers.IO) {
+                bizPort.markProgressCompleted(videoId, sourceKey, episode.index)
+            }
             shouldRefreshHomeOnExit = true
             return
         }
 
-        val durationMs = if (state.castState.isCasting) {
-            state.durationMs
-        } else {
-            player.duration.takeIf { it > 0 } ?: state.durationMs
+        val progress = _progress.value
+        val resolvedDuration = when {
+            durationMs != null && durationMs > 0L -> durationMs
+            state.castState.isCasting -> state.durationMs
+            progress.durationMs > 0L -> progress.durationMs
+            else -> state.durationMs
         }
-        val positionMs = if (state.castState.isCasting) {
-            state.currentPositionMs
-        } else {
-            player.currentPosition.coerceAtLeast(0L)
+        val resolvedPosition = when {
+            positionMs != null && positionMs > 0L -> positionMs
+            state.castState.isCasting -> state.currentPositionMs
+            progress.positionMs > 0L -> progress.positionMs
+            else -> state.currentPositionMs
         }
-        if (durationMs <= 0L || positionMs <= 0L) return
+        if (resolvedDuration <= 0L || resolvedPosition <= 0L) return
 
-        bizPort.saveProgress(
-            videoId = videoId,
-            videoName = state.video?.name.orEmpty(),
-            videoPic = state.video?.pic.orEmpty(),
-            sourceKey = sourceKey,
-            episodeIndex = episode.index,
-            episodeTitle = episode.title,
-            positionMs = positionMs,
-            durationMs = durationMs
-        )
+        withContext(Dispatchers.IO) {
+            bizPort.saveProgress(
+                videoId = videoId,
+                videoName = state.video?.name.orEmpty(),
+                videoPic = state.video?.pic.orEmpty(),
+                sourceKey = sourceKey,
+                episodeIndex = episode.index,
+                episodeTitle = episode.title,
+                positionMs = resolvedPosition,
+                durationMs = resolvedDuration
+            )
+        }
         shouldRefreshHomeOnExit = true
     }
 
@@ -856,6 +1057,14 @@ class PlayerViewModel @Inject constructor(
 
     private fun commit(mutation: PlayerContract.Mutation) {
         _uiState.value = reducer.reduce(_uiState.value, mutation)
+        when (mutation) {
+            is PlayerContract.Mutation.LoadStarted,
+            is PlayerContract.Mutation.SourceSelected,
+            is PlayerContract.Mutation.EpisodeSelected -> {
+                _progress.value = PlayerContract.ProgressUi()
+            }
+            else -> Unit
+        }
     }
 
     private fun emitEffect(effect: PlayerContract.UiEffect) {

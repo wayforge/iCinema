@@ -133,10 +133,6 @@ class PlayerReducer @Inject constructor() {
                 current.copy(autoPlayNextEnabled = mutation.enabled)
             }
 
-            is PlayerContract.Mutation.ControlsLockedChanged -> {
-                current.copy(controlsLocked = mutation.locked)
-            }
-
             is PlayerContract.Mutation.GestureSeekChanged -> {
                 current.copy(gestureSeekEnabled = mutation.enabled)
             }

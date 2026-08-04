@@ -330,7 +330,10 @@ class HlsProxyServer @Inject constructor(
         if (cached != null) {
             writeCachedResource(socket.getOutputStream(), cached, range, request.method == "HEAD")
             if (isMediaResourceUrl(originUrl) && range == null) {
-                prefetchCoordinator.classifyCachedSegment(parentPlaylist, originUrl)
+                // Don't block the serve path on fingerprint/hash.
+                scope.launch {
+                    prefetchCoordinator.classifyCachedSegment(parentPlaylist, originUrl)
+                }
             }
             return
         }
@@ -392,9 +395,11 @@ class HlsProxyServer @Inject constructor(
             responseBody.byteStream().use { input ->
                 cache.writeFromStream(originUrl, contentType, input, output)
             }
-            // After full download: fingerprint classify for cross-video global rules.
+            // Fingerprint off the serve path so the player read is not stalled.
             if (isMediaResourceUrl(originUrl)) {
-                prefetchCoordinator.classifyCachedSegment(parentPlaylistUrl, originUrl)
+                scope.launch {
+                    prefetchCoordinator.classifyCachedSegment(parentPlaylistUrl, originUrl)
+                }
             }
         }
     }

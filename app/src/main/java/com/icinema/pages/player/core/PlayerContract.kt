@@ -14,6 +14,13 @@ object PlayerContract {
         CastDevices
     }
 
+    /** High-frequency playback clock — subscribe only where the scrubber/time labels need it. */
+    data class ProgressUi(
+        val positionMs: Long = 0L,
+        val durationMs: Long = 0L,
+        val bufferedPositionMs: Long = 0L
+    )
+
     data class UiState(
         val videoId: Long? = null,
         val video: Video? = null,
@@ -37,7 +44,6 @@ object PlayerContract {
         val activeSheetMode: SheetMode? = null,
         val playbackSpeed: Float = DEFAULT_PLAYBACK_SPEED,
         val autoPlayNextEnabled: Boolean = true,
-        val controlsLocked: Boolean = false,
         val gestureSeekEnabled: Boolean = true,
         val castState: CastState = CastState(),
         /** In-player center toast (e.g. ad skip); cleared by DismissPlayerToast. */
@@ -62,6 +68,7 @@ object PlayerContract {
         data object PlayPrevious : UiIntent
         data object Retry : UiIntent
         data object ToggleControls : UiIntent
+        data class SetControlsVisible(val visible: Boolean) : UiIntent
         data class OpenSheet(val mode: SheetMode) : UiIntent
         data object DismissSheet : UiIntent
         data object EnterFullscreen : UiIntent
@@ -70,7 +77,6 @@ object PlayerContract {
         data object RestartFromBeginning : UiIntent
         data class SetPlaybackSpeed(val speed: Float) : UiIntent
         data object ToggleAutoPlayNext : UiIntent
-        data object ToggleControlsLock : UiIntent
         data object ToggleGestureSeek : UiIntent
         data object MarkCurrentSegmentAsAd : UiIntent
         data class GestureSeek(val deltaMs: Long) : UiIntent
@@ -81,6 +87,8 @@ object PlayerContract {
         data object OnLifecycleStart : UiIntent
         data object OnLifecycleStop : UiIntent
         data object DismissPlayerToast : UiIntent
+        data object ScrubStarted : UiIntent
+        data object ScrubEnded : UiIntent
     }
 
     sealed interface UiEffect {
@@ -144,7 +152,6 @@ object PlayerContract {
         ) : Mutation
         data class PlaybackSpeedChanged(val speed: Float) : Mutation
         data class AutoPlayNextChanged(val enabled: Boolean) : Mutation
-        data class ControlsLockedChanged(val locked: Boolean) : Mutation
         data class GestureSeekChanged(val enabled: Boolean) : Mutation
         data class CastStateChanged(val castState: CastState) : Mutation
         data class PlayerToastChanged(val message: String?) : Mutation
