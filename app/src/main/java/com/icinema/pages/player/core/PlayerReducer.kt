@@ -159,6 +159,17 @@ class PlayerReducer @Inject constructor() {
                     }
                 )
             }
+
+            is PlayerContract.Mutation.PlayerToastChanged -> {
+                if (mutation.message.isNullOrBlank()) {
+                    current.copy(playerToast = null)
+                } else {
+                    current.copy(
+                        playerToast = mutation.message,
+                        playerToastToken = current.playerToastToken + 1L
+                    )
+                }
+            }
         }
     }
 

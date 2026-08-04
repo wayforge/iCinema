@@ -10,7 +10,7 @@ class HlsSessionManager @Inject constructor(
     private val adRuleStore: HlsAdRuleStore
 ) {
     fun preparePlaybackUrl(originUrl: String): String {
-        prefetchCoordinator.prefetchManifest(originUrl, includeInitialResources = true)
+        prefetchCoordinator.startEpisodePrecache(originUrl)
         return proxyServer.proxyUrl(
             originUrl = originUrl,
             type = HlsProxyResourceType.Manifest,
@@ -19,7 +19,7 @@ class HlsSessionManager @Inject constructor(
     }
 
     fun prepareCastUrl(originUrl: String): String {
-        prefetchCoordinator.prefetchManifest(originUrl, includeInitialResources = true)
+        prefetchCoordinator.startEpisodePrecache(originUrl)
         return proxyServer.proxyUrl(
             originUrl = originUrl,
             type = HlsProxyResourceType.Manifest,
@@ -31,8 +31,26 @@ class HlsSessionManager @Inject constructor(
         return proxyServer.resourceUrl(originUrl, HlsProxyTarget.Loopback)
     }
 
+    /** Next episode: warm m3u8 text only (no full segment cache). */
     fun prefetchNextEpisodeManifest(originUrl: String) {
         prefetchCoordinator.prefetchManifest(originUrl, includeInitialResources = false)
+    }
+
+    fun cancelEpisodePrecache() {
+        prefetchCoordinator.cancelEpisodePrecache()
+    }
+
+    fun resolveAdSkipTarget(originUrl: String, playbackPositionMs: Long): HlsAdSkipRange? {
+        // Range build already fingerprint-classifies unmarked cached segments (light path).
+        return prefetchCoordinator.resolveAdSkipTarget(originUrl, playbackPositionMs)
+    }
+
+    fun prefetchBufferedUntilMs(originUrl: String, playbackPositionMs: Long): Long {
+        return prefetchCoordinator.prefetchBufferedUntilMs(originUrl, playbackPositionMs)
+    }
+
+    fun classifyCachedSegment(playlistUrl: String?, segmentUrl: String) {
+        prefetchCoordinator.classifyCachedSegment(playlistUrl, segmentUrl)
     }
 
     fun markCurrentSegmentAsAd(
@@ -81,10 +99,16 @@ class HlsSessionManager @Inject constructor(
             contentFingerprint = candidate.contentFingerprint,
             videoTitle = videoTitle,
             episodeTitle = episodeTitle,
-            detectedBy = if (candidate.contentFingerprint != null && candidate.rule.contentSha256 == candidate.contentFingerprint.sha256) {
-                "内容指纹"
-            } else {
-                "规则匹配"
+            detectedBy = when {
+                candidate.contentFingerprint != null &&
+                    candidate.rule.contentSha256 == candidate.contentFingerprint.sha256 ->
+                    if (candidate.rule.matchScope == HlsAdMatchScope.GlobalFingerprint) {
+                        "全局内容指纹"
+                    } else {
+                        "内容指纹"
+                    }
+                candidate.rule.matchScope == HlsAdMatchScope.GlobalFingerprint -> "全局内容指纹"
+                else -> "规则匹配"
             }
         )
     }

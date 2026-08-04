@@ -35,7 +35,6 @@ import androidx.compose.ui.unit.dp
 import com.icinema.cast.ui.CastDeviceSheetContent
 import com.icinema.cast.ui.CastMiniController
 import com.icinema.pages.detail.DetailContract
-import com.icinema.pages.detail.DETAIL_EPISODE_RANGE_SIZE
 import com.icinema.pages.detail.preview.detailPreviewState
 import com.icinema.pages.widgets.ErrorScreen
 import com.icinema.pages.widgets.LoadingScreen
@@ -182,12 +181,6 @@ private fun DetailSuccessContent(
     val playGroups = video.playGroups.filter { it.second.isNotEmpty() }
     val currentSource = state.selectedPlaySource ?: playGroups.firstOrNull()?.first
     val currentEpisodes = playGroups.firstOrNull { it.first == currentSource }?.second.orEmpty()
-    val rangeSize = DETAIL_EPISODE_RANGE_SIZE
-    val totalRanges = if (currentEpisodes.isEmpty()) 0 else (currentEpisodes.size + rangeSize - 1) / rangeSize
-    val clampedRange = state.selectedRange.coerceIn(0, (totalRanges - 1).coerceAtLeast(0))
-    val startIndex = clampedRange * rangeSize
-    val endIndex = minOf(startIndex + rangeSize, currentEpisodes.size)
-    val rangeEpisodes = if (currentEpisodes.isEmpty()) emptyList() else currentEpisodes.subList(startIndex, endIndex)
     val selectedEpisode = currentEpisodes.getOrNull(state.selectedEpisode)
 
     LazyColumn(
@@ -218,11 +211,7 @@ private fun DetailSuccessContent(
             DetailPlaybackSection(
                 currentSource = currentSource,
                 currentEpisodes = currentEpisodes,
-                totalRanges = totalRanges,
-                rangeSize = rangeSize,
-                clampedRange = clampedRange,
-                rangeEpisodes = rangeEpisodes,
-                startIndex = startIndex,
+                selectedRange = state.selectedRange,
                 selectedEpisode = state.selectedEpisode,
                 onSelectRange = { range ->
                     onIntent(DetailContract.UiIntent.SelectRange(range))

@@ -86,21 +86,34 @@ class HlsProxyServer @Inject constructor(
         return runCatching {
             val target = resolveCurrentResource(originUrl, playbackPositionMs)
                 ?: throw IllegalStateException("还没有捕获到当前播放片段，请播放几秒后再标记")
+            val fingerprint = ensureSegmentFingerprint(target.url)
             val rule = adRuleStore.upsertMarkedSegment(
                 playlistUrl = target.playlistUrl,
                 segmentUrl = target.url,
                 durationSeconds = target.durationSeconds,
-                contentFingerprint = cache.contentFingerprint(target.url),
+                contentFingerprint = fingerprint,
                 videoTitle = videoTitle,
                 episodeTitle = episodeTitle
             )
+            // Immediately mark current playlist timeline so skip can work without waiting for prefetch.
+            prefetchCoordinator.markSegmentAsAd(target.playlistUrl, target.url)
+            prefetchCoordinator.classifyCachedSegment(target.playlistUrl, target.url)
+            val shortHash = rule.contentSha256?.take(8)
+            val message = when {
+                rule.matchScope == HlsAdMatchScope.GlobalFingerprint && shortHash != null ->
+                    "已标记广告（全局指纹 $shortHash，相同 TS 可跨视频）"
+                rule.matchScope == HlsAdMatchScope.GlobalFingerprint ->
+                    "已标记广告（全局指纹，相同 TS 可跨视频）"
+                fingerprint == null ->
+                    "已标记广告（仅本片有效，未写入全局指纹）"
+                rule.urlPattern != null ->
+                    "已标记广告，并生成同类片段过滤规则"
+                else ->
+                    "已标记当前广告片段（仅本片）"
+            }
             MarkedHlsAdSegment(
                 rule = rule,
-                message = if (rule.urlPattern == null) {
-                    "已标记当前广告片段"
-                } else {
-                    "已标记广告，并生成同类片段过滤规则"
-                },
+                message = message,
                 segmentEndPositionMs = target.endPositionMs(playbackPositionMs)
             )
         }
@@ -112,13 +125,43 @@ class HlsProxyServer @Inject constructor(
         recordHit: Boolean = false
     ): HlsAdDetectionCandidate? {
         val target = resolveCurrentResource(originUrl, playbackPositionMs) ?: return null
-        val contentFingerprint = cache.contentFingerprint(target.url)
-        val rule = adRuleStore.matchingAdRules(
+        // URL / known-url first — avoid hashing every TS on the hot path.
+        val urlMatched = adRuleStore.matchingAdRules(
+            playlistUrl = target.playlistUrl,
+            segmentUrl = target.url,
+            contentFingerprint = null,
+            recordHits = false
+        ).firstOrNull()
+        val contentFingerprint = if (urlMatched == null) {
+            cache.contentFingerprint(target.url)
+        } else {
+            null
+        }
+        val rule = urlMatched ?: adRuleStore.matchingAdRules(
             playlistUrl = target.playlistUrl,
             segmentUrl = target.url,
             contentFingerprint = contentFingerprint,
-            recordHits = recordHit
+            recordHits = false
         ).firstOrNull() ?: return null
+        if (recordHit) {
+            adRuleStore.matchingAdRules(
+                playlistUrl = target.playlistUrl,
+                segmentUrl = target.url,
+                contentFingerprint = contentFingerprint,
+                recordHits = true
+            )
+        }
+        // Cross-playlist learning: remember this URL after fingerprint/global hit.
+        if (rule.matchScope == HlsAdMatchScope.GlobalFingerprint || contentFingerprint != null) {
+            adRuleStore.rememberKnownAdUrl(
+                segmentUrl = target.url,
+                rule = rule,
+                contentFingerprint = contentFingerprint
+                    ?: rule.takeIf { it.hasContentFingerprint }?.let {
+                        HlsContentFingerprint(it.contentSha256!!, it.contentLength!!)
+                    }
+            )
+        }
         return HlsAdDetectionCandidate(
             rule = rule,
             playlistUrl = target.playlistUrl,
@@ -127,6 +170,23 @@ class HlsProxyServer @Inject constructor(
             segmentEndPositionMs = target.endPositionMs(playbackPositionMs),
             contentFingerprint = contentFingerprint
         )
+    }
+
+    private fun ensureSegmentFingerprint(segmentUrl: String): HlsContentFingerprint? {
+        cache.contentFingerprint(segmentUrl)?.let { return it }
+        return runCatching {
+            val request = Request.Builder().url(segmentUrl).get().build()
+            okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val body = response.body ?: return@use null
+                cache.writeFromStream(
+                    url = segmentUrl,
+                    contentType = body.contentType()?.toString(),
+                    input = body.byteStream()
+                )
+            }
+            cache.contentFingerprint(segmentUrl)
+        }.getOrNull()
     }
 
     private fun ensureStarted() {
@@ -229,9 +289,14 @@ class HlsProxyServer @Inject constructor(
         if (upstreamManifest != null) {
             runCatching { cache.writeText(originUrl, HLS_CONTENT_TYPE, playlist) }
         }
+        // Keep ads in the playlist so CDN sequential chains stay valid; skip is playback-layer + prefetch.
         prefetchCoordinator.recordManifestSnapshot(originUrl, playlist)
         val target = request.target
-        val rewritten = manifestRewriter.rewrite(originUrl, playlist) { url, type ->
+        val rewritten = manifestRewriter.rewrite(
+            playlistUrl = originUrl,
+            playlist = playlist,
+            knownAdResourceUrls = emptySet()
+        ) { url, type ->
             proxyUrl(
                 originUrl = url,
                 type = type,
@@ -240,7 +305,11 @@ class HlsProxyServer @Inject constructor(
                 accessToken = request.query[ACCESS_TOKEN_QUERY]
             )
         }
-        prefetchCoordinator.prefetchResources(rewritten.prefetchUrls.take(SERVED_MANIFEST_PREFETCH_LIMIT))
+        // Full sequential episode cache (including ad TS).
+        prefetchCoordinator.continueEpisodePrecache(
+            playlistUrl = originUrl,
+            playlist = playlist
+        )
         writeTextResponse(
             output = socket.getOutputStream(),
             statusCode = 200,
@@ -252,23 +321,34 @@ class HlsProxyServer @Inject constructor(
 
     private fun serveResource(socket: Socket, request: ProxyRequest) {
         val originUrl = request.query["u"] ?: throw IllegalArgumentException("missing url")
-        request.query["p"]?.takeIf { isMediaResourceUrl(originUrl) }?.let { playlistUrl ->
+        val parentPlaylist = request.query["p"]?.takeIf { isMediaResourceUrl(originUrl) }
+        parentPlaylist?.let { playlistUrl ->
             recordRecentResource(originUrl, playlistUrl)
         }
         val range = request.headers["range"]?.let(::parseRangeHeader)
         val cached = cache.cachedResource(originUrl)
         if (cached != null) {
             writeCachedResource(socket.getOutputStream(), cached, range, request.method == "HEAD")
+            if (isMediaResourceUrl(originUrl) && range == null) {
+                prefetchCoordinator.classifyCachedSegment(parentPlaylist, originUrl)
+            }
             return
         }
-        fetchResource(socket.getOutputStream(), originUrl, request.method == "HEAD", range)
+        fetchResource(
+            output = socket.getOutputStream(),
+            originUrl = originUrl,
+            headersOnly = request.method == "HEAD",
+            range = range,
+            parentPlaylistUrl = parentPlaylist
+        )
     }
 
     private fun fetchResource(
         output: OutputStream,
         originUrl: String,
         headersOnly: Boolean,
-        range: ByteRange?
+        range: ByteRange?,
+        parentPlaylistUrl: String? = null
     ) {
         val requestBuilder = Request.Builder().url(originUrl)
         if (headersOnly) {
@@ -311,6 +391,10 @@ class HlsProxyServer @Inject constructor(
             )
             responseBody.byteStream().use { input ->
                 cache.writeFromStream(originUrl, contentType, input, output)
+            }
+            // After full download: fingerprint classify for cross-video global rules.
+            if (isMediaResourceUrl(originUrl)) {
+                prefetchCoordinator.classifyCachedSegment(parentPlaylistUrl, originUrl)
             }
         }
     }
@@ -654,7 +738,6 @@ class HlsProxyServer @Inject constructor(
         private const val ACCESS_TOKEN_QUERY = "t"
         private const val SOCKET_TIMEOUT_MS = 30_000
         private const val BACKLOG = 32
-        private const val SERVED_MANIFEST_PREFETCH_LIMIT = 6
         private const val RECENT_RESOURCE_LIMIT = 30
         private const val RECENT_RESOURCE_WINDOW_MS = 120_000L
         private const val LAN_ACCESS_TOKEN_TTL_MS = 2 * 60 * 60 * 1000L

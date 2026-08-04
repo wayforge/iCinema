@@ -39,7 +39,10 @@ object PlayerContract {
         val autoPlayNextEnabled: Boolean = true,
         val controlsLocked: Boolean = false,
         val gestureSeekEnabled: Boolean = true,
-        val castState: CastState = CastState()
+        val castState: CastState = CastState(),
+        /** In-player center toast (e.g. ad skip); cleared by DismissPlayerToast. */
+        val playerToast: String? = null,
+        val playerToastToken: Long = 0L
     )
 
     sealed interface UiIntent {
@@ -77,6 +80,7 @@ object PlayerContract {
         data object StopCasting : UiIntent
         data object OnLifecycleStart : UiIntent
         data object OnLifecycleStop : UiIntent
+        data object DismissPlayerToast : UiIntent
     }
 
     sealed interface UiEffect {
@@ -143,5 +147,6 @@ object PlayerContract {
         data class ControlsLockedChanged(val locked: Boolean) : Mutation
         data class GestureSeekChanged(val enabled: Boolean) : Mutation
         data class CastStateChanged(val castState: CastState) : Mutation
+        data class PlayerToastChanged(val message: String?) : Mutation
     }
 }

@@ -115,8 +115,14 @@ class DetailViewModel @Inject constructor(
     }
 
     private fun selectEpisode(episode: Int) {
-        if (_uiState.value.selectedEpisode != episode) {
+        val state = _uiState.value
+        if (state.selectedEpisode != episode) {
             commit(DetailContract.Mutation.EpisodeChanged(episode))
+        }
+        val total = currentEpisodeCount(state)
+        val range = detailEpisodeRangeIndex(episode, total)
+        if (_uiState.value.selectedRange != range) {
+            commit(DetailContract.Mutation.RangeChanged(range))
         }
     }
 
@@ -130,9 +136,7 @@ class DetailViewModel @Inject constructor(
         if (_uiState.value.selectedPlaySource != sourceKey) {
             commit(DetailContract.Mutation.PlaySourceChanged(sourceKey))
         }
-        if (_uiState.value.selectedEpisode != episodeIndex) {
-            commit(DetailContract.Mutation.EpisodeChanged(episodeIndex))
-        }
+        selectEpisode(episodeIndex)
         commit(
             DetailContract.Mutation.CastSheetChanged(
                 visible = true,
@@ -249,7 +253,7 @@ class DetailViewModel @Inject constructor(
             return PreferredSelection(
                 sourceKey = defaultSource.key,
                 episodeIndex = defaultEpisode.index,
-                rangeIndex = calculateRangeIndex(defaultEpisode.index),
+                rangeIndex = calculateRangeIndex(defaultEpisode.index, defaultSource.episodes.size),
                 restoredByFallback = false
             )
         }
@@ -258,7 +262,7 @@ class DetailViewModel @Inject constructor(
             ?: return PreferredSelection(
                 sourceKey = defaultSource.key,
                 episodeIndex = defaultEpisode.index,
-                rangeIndex = calculateRangeIndex(defaultEpisode.index),
+                rangeIndex = calculateRangeIndex(defaultEpisode.index, defaultSource.episodes.size),
                 restoredByFallback = true
             )
 
@@ -269,7 +273,7 @@ class DetailViewModel @Inject constructor(
             return PreferredSelection(
                 sourceKey = matchedSource.key,
                 episodeIndex = fallbackEpisode.index,
-                rangeIndex = calculateRangeIndex(fallbackEpisode.index),
+                rangeIndex = calculateRangeIndex(fallbackEpisode.index, matchedSource.episodes.size),
                 restoredByFallback = true
             )
         }
@@ -280,7 +284,7 @@ class DetailViewModel @Inject constructor(
                 return PreferredSelection(
                     sourceKey = matchedSource.key,
                     episodeIndex = nextEpisode.index,
-                    rangeIndex = calculateRangeIndex(nextEpisode.index),
+                    rangeIndex = calculateRangeIndex(nextEpisode.index, matchedSource.episodes.size),
                     restoredByFallback = false
                 )
             }
@@ -289,13 +293,21 @@ class DetailViewModel @Inject constructor(
         return PreferredSelection(
             sourceKey = matchedSource.key,
             episodeIndex = targetEpisode.index,
-            rangeIndex = calculateRangeIndex(targetEpisode.index),
+            rangeIndex = calculateRangeIndex(targetEpisode.index, matchedSource.episodes.size),
             restoredByFallback = false
         )
     }
 
-    private fun calculateRangeIndex(episodeIndex: Int): Int {
-        return (episodeIndex.coerceAtLeast(0)) / DETAIL_EPISODE_RANGE_SIZE
+    private fun calculateRangeIndex(episodeIndex: Int, totalEpisodes: Int): Int {
+        return detailEpisodeRangeIndex(episodeIndex, totalEpisodes)
+    }
+
+    private fun currentEpisodeCount(state: DetailContract.UiState): Int {
+        val video = state.video ?: return 0
+        val sourceKey = state.selectedPlaySource
+        val source = video.playSources.firstOrNull { it.key == sourceKey }
+            ?: video.playSources.firstOrNull()
+        return source?.episodes?.size ?: 0
     }
 
     private fun commit(mutation: DetailContract.Mutation) {

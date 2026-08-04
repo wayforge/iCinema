@@ -1,6 +1,7 @@
 package com.icinema.pages.player.adfilter
 
 import androidx.lifecycle.ViewModel
+import com.icinema.pages.player.core.hls.HlsAdMatchScope
 import com.icinema.pages.player.core.hls.HlsDetectedAdSegment
 import com.icinema.pages.player.core.hls.HlsAdRule
 import com.icinema.pages.player.core.hls.HlsAdRuleStore
@@ -30,6 +31,7 @@ class HlsAdFilterViewModel @Inject constructor(
         when (intent) {
             HlsAdFilterContract.UiIntent.Load -> loadRules()
             is HlsAdFilterContract.UiIntent.DeleteRule -> deleteRule(intent.ruleId)
+            is HlsAdFilterContract.UiIntent.SetRuleEnabled -> setRuleEnabled(intent.ruleId, intent.enabled)
             HlsAdFilterContract.UiIntent.ClearAll -> clearAll()
             is HlsAdFilterContract.UiIntent.PreviewRule -> previewRule(intent.ruleId)
             is HlsAdFilterContract.UiIntent.PreviewDetectedSegment -> previewDetectedSegment(intent.segmentId)
@@ -49,6 +51,20 @@ class HlsAdFilterViewModel @Inject constructor(
         adRuleStore.deleteRule(ruleId)
         loadRules()
         emitEffect(HlsAdFilterContract.UiEffect.ShowMessage("已删除广告规则"))
+    }
+
+    private fun setRuleEnabled(ruleId: String, enabled: Boolean) {
+        val ok = adRuleStore.setRuleEnabled(ruleId, enabled)
+        if (!ok) {
+            emitEffect(HlsAdFilterContract.UiEffect.ShowMessage("广告规则不存在"))
+            return
+        }
+        loadRules()
+        emitEffect(
+            HlsAdFilterContract.UiEffect.ShowMessage(
+                if (enabled) "已启用规则识别" else "已停用规则识别"
+            )
+        )
     }
 
     private fun clearAll() {
@@ -88,7 +104,7 @@ class HlsAdFilterViewModel @Inject constructor(
             segmentUrl = intent.segmentUrl
         ).onSuccess { result ->
             val message = when {
-                result.matches -> "校验通过：播放时会识别为广告"
+                result.matches -> "校验通过：开启后会删片或跳过该广告"
                 !result.playlistMatches -> "校验未通过：播放清单不匹配"
                 else -> "校验未通过：片段地址不匹配"
             }
@@ -116,13 +132,20 @@ class HlsAdFilterViewModel @Inject constructor(
             urlPattern = urlPattern,
             matchText = matchText.ifBlank { segmentUrl.substringAfterLast('/') },
             matchType = when {
+                matchScope == HlsAdMatchScope.GlobalFingerprint && contentSha256 != null -> "全局内容指纹"
                 contentSha256 != null -> "内容指纹"
                 urlPattern == null -> "精确片段"
                 else -> "同类片段"
             },
             createdAtText = DATE_FORMAT.format(Date(createdAtMs)),
             hitCount = hitCount,
-            lastHitAtText = lastHitAtMs?.let { DATE_FORMAT.format(Date(it)) }
+            lastHitAtText = lastHitAtMs?.let { DATE_FORMAT.format(Date(it)) },
+            enabled = enabled,
+            scopeLabel = when {
+                matchScope == HlsAdMatchScope.GlobalFingerprint && contentSha256 != null -> "可跨视频"
+                else -> "仅本片"
+            },
+            fingerprintShort = contentSha256?.take(8)
         )
     }
 

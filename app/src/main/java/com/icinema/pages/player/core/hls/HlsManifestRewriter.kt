@@ -14,6 +14,8 @@ class HlsManifestRewriter @Inject constructor() {
         val pendingSegmentTags = mutableListOf<String>()
         val prefetchUrls = linkedSetOf<String>()
         var nextUriIsVariant = false
+        var droppedAdSinceLastMedia = false
+        var emittedMediaSegment = false
 
         fun flushPendingSegmentTags() {
             if (pendingSegmentTags.isNotEmpty()) {
@@ -26,8 +28,10 @@ class HlsManifestRewriter @Inject constructor() {
             val line = rawLine.trim()
             when {
                 line.isBlank() -> {
-                    flushPendingSegmentTags()
-                    output.add(rawLine)
+                    // Keep blanks only outside pending segment blocks to avoid flushing KEY early.
+                    if (pendingSegmentTags.isEmpty()) {
+                        output.add(rawLine)
+                    }
                 }
 
                 line.startsWith("#EXT-X-STREAM-INF", ignoreCase = true) -> {
@@ -58,6 +62,19 @@ class HlsManifestRewriter @Inject constructor() {
                     pendingSegmentTags.add(rewritten.line)
                 }
 
+                // Drop ad-break markers that only wrap removed ads; they confuse some players.
+                isAdBreakStart(line) || isAdBreakEnd(line) || isAdMarker(line) -> {
+                    if (knownAdResourceUrls.isEmpty()) {
+                        if (isSegmentScopedTag(line)) {
+                            pendingSegmentTags.add(rawLine)
+                        } else {
+                            flushPendingSegmentTags()
+                            output.add(rawLine)
+                        }
+                    }
+                    // When stripping ads, omit cue/ad markers from output.
+                }
+
                 line.startsWith("#EXT", ignoreCase = true) -> {
                     if (isSegmentScopedTag(line)) {
                         pendingSegmentTags.add(rawLine)
@@ -82,12 +99,36 @@ class HlsManifestRewriter @Inject constructor() {
                         HlsProxyResourceType.Resource
                     }
 
-                    flushPendingSegmentTags()
-                    output.add(proxyUrlFactory(absoluteUrl, resourceType))
-                    if (resourceType == HlsProxyResourceType.Resource) {
-                        prefetchUrls.add(absoluteUrl)
+                    if (
+                        resourceType == HlsProxyResourceType.Resource &&
+                        isKnownAdResource(absoluteUrl, knownAdResourceUrls)
+                    ) {
+                        // Drop this media segment and its scoped tags; keep KEY/MAP for later segments.
+                        pendingSegmentTags.retainSharedSegmentTags()
+                        droppedAdSinceLastMedia = true
+                        nextUriIsVariant = false
+                    } else {
+                        if (
+                            resourceType == HlsProxyResourceType.Resource &&
+                            droppedAdSinceLastMedia
+                        ) {
+                            // ExoPlayer needs an explicit discontinuity after removed ad media.
+                            val alreadyHasDiscontinuity = pendingSegmentTags.any {
+                                it.trim().startsWith("#EXT-X-DISCONTINUITY", ignoreCase = true)
+                            }
+                            if (!alreadyHasDiscontinuity) {
+                                pendingSegmentTags.add(0, "#EXT-X-DISCONTINUITY")
+                            }
+                            droppedAdSinceLastMedia = false
+                        }
+                        flushPendingSegmentTags()
+                        output.add(proxyUrlFactory(absoluteUrl, resourceType))
+                        if (resourceType == HlsProxyResourceType.Resource) {
+                            prefetchUrls.add(absoluteUrl)
+                            emittedMediaSegment = true
+                        }
+                        nextUriIsVariant = false
                     }
-                    nextUriIsVariant = false
                 }
             }
         }
@@ -233,6 +274,24 @@ class HlsManifestRewriter @Inject constructor() {
             ?.resolve(candidate)
             ?.toString()
             ?: java.net.URI(baseUrl).resolve(candidate).toString()
+    }
+
+    private fun MutableList<String>.retainSharedSegmentTags() {
+        val shared = filter { line ->
+            val trimmed = line.trim()
+            trimmed.startsWith("#EXT-X-KEY", ignoreCase = true) ||
+                trimmed.startsWith("#EXT-X-MAP", ignoreCase = true)
+        }
+        clear()
+        addAll(shared)
+    }
+
+    private fun isKnownAdResource(url: String, knownAdResourceUrls: Set<String>): Boolean {
+        if (knownAdResourceUrls.isEmpty()) return false
+        if (url in knownAdResourceUrls) return true
+        // Only exact / ignore-query match. Bare filename match is too aggressive and can drop content TS.
+        val normalized = url.substringBefore('?')
+        return knownAdResourceUrls.any { it.substringBefore('?') == normalized }
     }
 
     private fun isSegmentScopedTag(line: String): Boolean {

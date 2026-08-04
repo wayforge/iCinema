@@ -14,7 +14,11 @@ class PlayerPreloadCoordinator @Inject constructor(
         hlsSessionManager.prefetchNextEpisodeManifest(episode.url)
     }
 
-    fun clearFor(videoId: Long, sourceKey: String, episodeIndex: Int) = Unit
+    fun clearFor(videoId: Long, sourceKey: String, episodeIndex: Int) {
+        hlsSessionManager.cancelEpisodePrecache()
+    }
 
-    fun release() = Unit
+    fun release() {
+        hlsSessionManager.cancelEpisodePrecache()
+    }
 }

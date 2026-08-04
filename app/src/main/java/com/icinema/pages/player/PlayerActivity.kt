@@ -94,12 +94,25 @@ class PlayerActivity : ComponentActivity() {
                             if (playerViewModel.consumeHomeRefreshSignal()) {
                                 setResult(RESULT_OK, Intent().putExtra(EXTRA_HOME_REFRESH, true))
                             }
-                            finish()
+                            finishWithPortraitRestore()
                         }
                     )
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        // Ensure previous portrait pages are not left in landscape after player exits.
+        if (isFinishing) {
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+        super.onDestroy()
+    }
+
+    private fun finishWithPortraitRestore() {
+        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        finish()
     }
 }
 
@@ -129,10 +142,9 @@ private fun PlayerScreen(
     }
 
     LaunchedEffect(state.isFullscreen) {
-        activity.requestedOrientation = if (state.isFullscreen) {
-            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        } else {
-            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        // Manifest already locks player to sensorLandscape; keep runtime lock aligned while alive.
+        if (!activity.isFinishing) {
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         }
 
         val controller = WindowCompat.getInsetsController(activity.window, activity.window.decorView)

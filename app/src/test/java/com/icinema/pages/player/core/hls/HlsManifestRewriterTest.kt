@@ -60,7 +60,7 @@ class HlsManifestRewriterTest {
     }
 
     @Test
-    fun `preserves cue out ad segments for playback layer skipping`() {
+    fun `keeps cue out ad segments when no known ad urls`() {
         val playlist = """
             #EXTM3U
             #EXTINF:6.0,
@@ -84,21 +84,15 @@ class HlsManifestRewriterTest {
         assertTrue(result.playlist.contains("Resource:https://origin.example.com/vod/content-2.ts"))
         assertTrue(result.playlist.contains("Resource:https://origin.example.com/vod/ad-1.ts"))
         assertTrue(result.playlist.contains("Resource:https://origin.example.com/vod/ad-2.ts"))
-        assertEquals(
-            listOf(
-                "https://origin.example.com/vod/content-1.ts",
-                "https://origin.example.com/vod/ad-1.ts",
-                "https://origin.example.com/vod/ad-2.ts",
-                "https://origin.example.com/vod/content-2.ts"
-            ),
-            result.prefetchUrls
-        )
     }
 
     @Test
-    fun `preserves known ad urls when rewriting manifest`() {
+    fun `drops known ad urls from media playlist while keeping content`() {
         val playlist = """
             #EXTM3U
+            #EXT-X-KEY:METHOD=AES-128,URI="keys/file.key"
+            #EXTINF:6.0,
+            content_000.ts
             #EXTINF:6.0,
             ad_break_001.ts
             #EXTINF:6.0,
@@ -111,7 +105,38 @@ class HlsManifestRewriterTest {
             knownAdResourceUrls = setOf("https://origin.example.com/live/ad_break_001.ts")
         ) { url, type -> "$type:$url" }
 
-        assertTrue(result.playlist.contains("Resource:https://origin.example.com/live/ad_break_001.ts"))
-        assertTrue(result.playlist.contains("content_001.ts"))
+        assertTrue(!result.playlist.contains("ad_break_001.ts"))
+        assertTrue(result.playlist.contains("Resource:https://origin.example.com/live/content_000.ts"))
+        assertTrue(result.playlist.contains("Resource:https://origin.example.com/live/content_001.ts"))
+        assertTrue(result.playlist.contains("#EXT-X-DISCONTINUITY"))
+        assertTrue(result.playlist.contains("URI=\"Resource:https://origin.example.com/live/keys/file.key\""))
+        assertEquals(
+            listOf(
+                "https://origin.example.com/live/keys/file.key",
+                "https://origin.example.com/live/content_000.ts",
+                "https://origin.example.com/live/content_001.ts"
+            ),
+            result.prefetchUrls
+        )
+    }
+
+    @Test
+    fun `does not drop master playlist variants`() {
+        val playlist = """
+            #EXTM3U
+            #EXT-X-STREAM-INF:BANDWIDTH=1280000
+            low/index.m3u8
+            #EXT-X-STREAM-INF:BANDWIDTH=2560000
+            high/index.m3u8
+        """.trimIndent()
+
+        val result = rewriter.rewrite(
+            playlistUrl = "https://origin.example.com/live/master.m3u8",
+            playlist = playlist,
+            knownAdResourceUrls = setOf("https://origin.example.com/live/low/index.m3u8")
+        ) { url, type -> "$type:$url" }
+
+        assertTrue(result.playlist.contains("Manifest:https://origin.example.com/live/low/index.m3u8"))
+        assertTrue(result.playlist.contains("Manifest:https://origin.example.com/live/high/index.m3u8"))
     }
 }

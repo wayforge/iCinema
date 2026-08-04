@@ -22,7 +22,7 @@ class HlsPersistentCache @Inject constructor(
         file.setLastModified(System.currentTimeMillis())
         return CachedResource(
             file = file,
-            contentType = contentType ?: readContentType(url) ?: guessContentType(url),
+            contentType = contentType ?: readMeta(url).contentType ?: guessContentType(url),
             length = file.length()
         )
     }
@@ -41,6 +41,14 @@ class HlsPersistentCache @Inject constructor(
     fun contentFingerprint(url: String): HlsContentFingerprint? {
         val file = dataFile(url)
         if (!file.exists() || file.length() <= 0L) return null
+        val meta = readMeta(url)
+        if (
+            !meta.sha256.isNullOrBlank() &&
+            meta.length != null &&
+            meta.length == file.length()
+        ) {
+            return HlsContentFingerprint(sha256 = meta.sha256, length = meta.length)
+        }
         return runCatching {
             val digest = MessageDigest.getInstance("SHA-256")
             file.inputStream().use { input ->
@@ -51,10 +59,17 @@ class HlsPersistentCache @Inject constructor(
                     digest.update(buffer, 0, read)
                 }
             }
-            HlsContentFingerprint(
+            val fingerprint = HlsContentFingerprint(
                 sha256 = digest.digest().toHexString(),
                 length = file.length()
             )
+            writeMeta(
+                url = url,
+                contentType = meta.contentType ?: guessContentType(url),
+                sha256 = fingerprint.sha256,
+                length = fingerprint.length
+            )
+            fingerprint
         }.getOrNull()
     }
 
@@ -81,18 +96,26 @@ class HlsPersistentCache @Inject constructor(
         val targetFile = dataFile(url)
         val tempFile = tempFile(targetFile)
         return runCatching {
+            val digest = MessageDigest.getInstance("SHA-256")
             tempFile.outputStream().use { fileOutput ->
                 val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                 while (true) {
                     val read = input.read(buffer)
                     if (read <= 0) break
+                    digest.update(buffer, 0, read)
                     fileOutput.write(buffer, 0, read)
                     output.write(buffer, 0, read)
                 }
                 fileOutput.flush()
                 output.flush()
             }
-            finalizeWrite(url, contentType, targetFile, tempFile)
+            finalizeWrite(
+                url = url,
+                contentType = contentType,
+                targetFile = targetFile,
+                tempFile = tempFile,
+                sha256 = digest.digest().toHexString()
+            )
         }.getOrElse { error ->
             tempFile.delete()
             throw error
@@ -163,15 +186,12 @@ class HlsPersistentCache @Inject constructor(
         return File(rootDir, "${targetFile.name}.${System.nanoTime()}.${TEMP_FILE_COUNTER.incrementAndGet()}.tmp")
     }
 
-    private fun writeContentType(url: String, contentType: String) {
-        metaFile(url).writeText(contentType, Charsets.UTF_8)
-    }
-
     private fun finalizeWrite(
         url: String,
         contentType: String?,
         targetFile: File,
-        tempFile: File
+        tempFile: File,
+        sha256: String? = null
     ): CachedResource {
         if (targetFile.exists()) {
             targetFile.delete()
@@ -181,7 +201,24 @@ class HlsPersistentCache @Inject constructor(
             tempFile.delete()
         }
         val resolvedContentType = contentType ?: guessContentType(url)
-        writeContentType(url, resolvedContentType)
+        val fingerprintSha = sha256 ?: runCatching {
+            val digest = MessageDigest.getInstance("SHA-256")
+            targetFile.inputStream().use { input ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    digest.update(buffer, 0, read)
+                }
+            }
+            digest.digest().toHexString()
+        }.getOrNull()
+        writeMeta(
+            url = url,
+            contentType = resolvedContentType,
+            sha256 = fingerprintSha,
+            length = targetFile.length()
+        )
         trimToSize()
         return CachedResource(
             file = targetFile,
@@ -190,9 +227,49 @@ class HlsPersistentCache @Inject constructor(
         )
     }
 
-    private fun readContentType(url: String): String? {
+    private fun writeMeta(
+        url: String,
+        contentType: String,
+        sha256: String?,
+        length: Long?
+    ) {
+        val body = buildString {
+            append("contentType=").append(contentType).append('\n')
+            if (!sha256.isNullOrBlank()) {
+                append("sha256=").append(sha256).append('\n')
+            }
+            if (length != null && length > 0L) {
+                append("length=").append(length).append('\n')
+            }
+        }
+        metaFile(url).writeText(body, Charsets.UTF_8)
+    }
+
+    private fun readMeta(url: String): CacheMeta {
         val file = metaFile(url)
-        return file.takeIf { it.exists() }?.readText(Charsets.UTF_8)?.takeIf { it.isNotBlank() }
+        if (!file.exists()) return CacheMeta()
+        val text = runCatching { file.readText(Charsets.UTF_8) }.getOrNull().orEmpty()
+        if (text.isBlank()) return CacheMeta()
+        // Backward compatible: plain content-type string without keys.
+        if (!text.contains('=') && !text.contains('\n')) {
+            return CacheMeta(contentType = text.trim().takeIf { it.isNotBlank() })
+        }
+        var contentType: String? = null
+        var sha256: String? = null
+        var length: Long? = null
+        text.lineSequence().forEach { raw ->
+            val line = raw.trim()
+            if (line.isEmpty()) return@forEach
+            val key = line.substringBefore('=', missingDelimiterValue = "").trim()
+            val value = line.substringAfter('=', missingDelimiterValue = "").trim()
+            when (key) {
+                "contentType" -> contentType = value.takeIf { it.isNotBlank() }
+                "sha256" -> sha256 = value.takeIf { it.isNotBlank() }
+                "length" -> length = value.toLongOrNull()
+                "" -> if (contentType == null) contentType = line.takeIf { it.isNotBlank() }
+            }
+        }
+        return CacheMeta(contentType = contentType, sha256 = sha256, length = length)
     }
 
     private fun hash(value: String): String {
@@ -208,6 +285,12 @@ class HlsPersistentCache @Inject constructor(
         val file: File,
         val contentType: String,
         val length: Long
+    )
+
+    private data class CacheMeta(
+        val contentType: String? = null,
+        val sha256: String? = null,
+        val length: Long? = null
     )
 
     private companion object {

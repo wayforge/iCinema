@@ -1,3 +1,7 @@
 package com.icinema.pages.detail
 
-internal const val DETAIL_EPISODE_RANGE_SIZE = 10
+import com.icinema.pages.widgets.episodeRangeIndex
+
+internal fun detailEpisodeRangeIndex(episodeIndex: Int, totalEpisodes: Int): Int {
+    return episodeRangeIndex(episodeIndex, totalEpisodes)
+}

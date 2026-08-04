@@ -27,9 +27,10 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-private const val AD_DETECTION_CHECK_INTERVAL_MS = 1_000L
+private const val AD_DETECTION_CHECK_INTERVAL_MS = 400L
 private const val PROGRESS_SAVE_INTERVAL_TICKS = 5
-private const val AD_DETECTION_DEDUP_WINDOW_MS = 10_000L
+private const val AD_DETECTION_DEDUP_WINDOW_MS = 8_000L
+private const val AD_SKIP_MIN_FORWARD_MS = 250L
 
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
@@ -202,6 +203,9 @@ class PlayerViewModel @Inject constructor(
             PlayerContract.UiIntent.StopCasting -> stopCasting()
             PlayerContract.UiIntent.OnLifecycleStart -> Unit
             PlayerContract.UiIntent.OnLifecycleStop -> onStop()
+            PlayerContract.UiIntent.DismissPlayerToast -> {
+                commit(PlayerContract.Mutation.PlayerToastChanged(null))
+            }
         }
     }
 
@@ -408,6 +412,11 @@ class PlayerViewModel @Inject constructor(
         commit(PlayerContract.Mutation.ErrorChanged(null))
         lastDetectedAdSegmentUrl = null
         lastDetectedAdAtMs = 0L
+        preloadCoordinator.clearFor(
+            videoId = _uiState.value.videoId ?: 0L,
+            sourceKey = sourceKey,
+            episodeIndex = episode.index
+        )
         val playbackUrl = runCatching { hlsSessionManager.preparePlaybackUrl(episode.url) }
             .getOrElse { episode.url }
         player.stop()
@@ -519,9 +528,9 @@ class PlayerViewModel @Inject constructor(
                 videoTitle = state.video?.name.orEmpty(),
                 episodeTitle = episode.title
             ).onSuccess { markedSegment ->
-                emitEffect(PlayerContract.UiEffect.ShowMessage(markedSegment.message))
+                showPlayerToast(markedSegment.message)
             }.onFailure { error ->
-                emitEffect(PlayerContract.UiEffect.ShowMessage(error.message ?: "广告标记失败"))
+                showPlayerToast(error.message ?: "广告标记失败")
             }
         }
     }
@@ -541,11 +550,21 @@ class PlayerViewModel @Inject constructor(
 
     private fun updatePlaybackPosition() {
         if (_uiState.value.castState.isCasting) return
+        val positionMs = player.currentPosition.coerceAtLeast(0L)
+        val exoBuffered = player.bufferedPosition.coerceAtLeast(0L)
+        val episodeUrl = _uiState.value.currentEpisode?.url
+        val prefetchBuffered = if (episodeUrl != null) {
+            runCatching {
+                hlsSessionManager.prefetchBufferedUntilMs(episodeUrl, positionMs)
+            }.getOrDefault(positionMs)
+        } else {
+            positionMs
+        }
         commit(
             PlayerContract.Mutation.PositionChanged(
-                currentPositionMs = player.currentPosition.coerceAtLeast(0L),
+                currentPositionMs = positionMs,
                 durationMs = player.duration.coerceAtLeast(0L),
-                bufferedPositionMs = player.bufferedPosition.coerceAtLeast(0L)
+                bufferedPositionMs = maxOf(exoBuffered, prefetchBuffered)
             )
         )
     }
@@ -556,7 +575,7 @@ class PlayerViewModel @Inject constructor(
             var saveTick = 0
             while (isActive) {
                 updatePlaybackPosition()
-                detectConfirmedAdSegmentIfNeeded()
+                detectAndSkipAdIfNeeded()
                 saveTick += 1
                 if (saveTick >= PROGRESS_SAVE_INTERVAL_TICKS) {
                     saveCurrentProgress(clearCompleted = false)
@@ -572,38 +591,83 @@ class PlayerViewModel @Inject constructor(
         progressJob = null
     }
 
-    private fun detectConfirmedAdSegmentIfNeeded() {
+    /**
+     * Lookahead skip: only after ad TS are already cached (CDN chain safe).
+     * Falls back to in-segment detection when already inside an ad.
+     */
+    private fun detectAndSkipAdIfNeeded() {
         val state = _uiState.value
         val episode = state.currentEpisode ?: return
         if (state.castState.isCasting || !episode.isHls) return
 
         val playbackPositionMs = player.currentPosition.coerceAtLeast(0L)
-        val candidate = hlsSessionManager.resolveAdDetectionCandidate(
-            originUrl = episode.url,
-            playbackPositionMs = playbackPositionMs
-        ) ?: return
-
         val now = System.currentTimeMillis()
-        if (
-            candidate.segmentUrl == lastDetectedAdSegmentUrl &&
-            now - lastDetectedAdAtMs <= AD_DETECTION_DEDUP_WINDOW_MS
-        ) {
+
+        // Prefer timeline lookahead (skip before/while entering ad, once ad bytes are cached).
+        val skipRange = hlsSessionManager.resolveAdSkipTarget(episode.url, playbackPositionMs)
+        if (skipRange != null && skipRange.endMs > playbackPositionMs + AD_SKIP_MIN_FORWARD_MS) {
+            val rangeKey = "range:${skipRange.startMs}-${skipRange.endMs}"
+            val isDuplicate =
+                rangeKey == lastDetectedAdSegmentUrl &&
+                    now - lastDetectedAdAtMs <= AD_DETECTION_DEDUP_WINDOW_MS
+            if (!isDuplicate) {
+                // Record hit on the first ad segment of the range when possible.
+                val candidate = hlsSessionManager.resolveAdDetectionCandidate(
+                    originUrl = episode.url,
+                    playbackPositionMs = maxOf(playbackPositionMs, skipRange.startMs),
+                    recordHit = true
+                )
+                if (candidate != null) {
+                    hlsSessionManager.recordDetectedSegment(
+                        candidate = candidate,
+                        videoTitle = state.video?.name.orEmpty(),
+                        episodeTitle = episode.title
+                    )
+                }
+                lastDetectedAdSegmentUrl = rangeKey
+                lastDetectedAdAtMs = now
+                player.seekTo(skipRange.endMs)
+                updatePlaybackPosition()
+                showPlayerToast("已跳过广告")
+            }
             return
         }
 
-        val recordedCandidate = hlsSessionManager.resolveAdDetectionCandidate(
+        // Fallback: currently on an ad segment that just became identifiable.
+        val candidate = hlsSessionManager.resolveAdDetectionCandidate(
             originUrl = episode.url,
             playbackPositionMs = playbackPositionMs,
-            recordHit = true
-        ) ?: candidate
-        hlsSessionManager.recordDetectedSegment(
-            candidate = recordedCandidate,
-            videoTitle = state.video?.name.orEmpty(),
-            episodeTitle = episode.title
-        )
+            recordHit = false
+        ) ?: return
+        val isDuplicate =
+            candidate.segmentUrl == lastDetectedAdSegmentUrl &&
+                now - lastDetectedAdAtMs <= AD_DETECTION_DEDUP_WINDOW_MS
+        val endMs = candidate.segmentEndPositionMs
+            ?: (playbackPositionMs + ((candidate.rule.durationSeconds ?: 0.0) * 1000).toLong())
+        if (endMs <= playbackPositionMs + AD_SKIP_MIN_FORWARD_MS) return
+
+        if (!isDuplicate) {
+            val recorded = hlsSessionManager.resolveAdDetectionCandidate(
+                originUrl = episode.url,
+                playbackPositionMs = playbackPositionMs,
+                recordHit = true
+            ) ?: candidate
+            hlsSessionManager.recordDetectedSegment(
+                candidate = recorded,
+                videoTitle = state.video?.name.orEmpty(),
+                episodeTitle = episode.title
+            )
+        }
+        player.seekTo(endMs)
         lastDetectedAdSegmentUrl = candidate.segmentUrl
         lastDetectedAdAtMs = now
-        emitEffect(PlayerContract.UiEffect.ShowMessage("规则识别：当前播放的是广告"))
+        updatePlaybackPosition()
+        showPlayerToast("已跳过广告")
+    }
+
+    private fun showPlayerToast(message: String) {
+        // In-player overlay only — avoid duplicate Snackbar toast.
+        commit(PlayerContract.Mutation.PlayerToastChanged(message))
     }
 
     private fun openCastFlow() {

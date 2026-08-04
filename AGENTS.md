@@ -23,6 +23,12 @@ Use the checked-in Gradle wrapper:
 - `./gradlew lint`: run Android lint. Lint currently checks dependencies and does not abort the build on errors.
 - `./gradlew :app:compileDebugKotlin`: quick Kotlin compile check for app changes.
 
+## Device / Emulator Rules
+
+- 禁止擅自启动本地 AVD / emulator（含 `emulator -avd`、后台拉起模拟器等），除非用户明确要求。
+- `adb install`、真机/模拟器调试、instrumented 测试前先 `adb devices`；若无 `device`，只提示用户连接设备或自行启动模拟器，然后停止，不代为启动 AVD。
+- 仅在用户明确要求时才启动、关闭或重启模拟器。
+
 ## Coding Style & Naming Conventions
 
 Code is Kotlin with Java 17 toolchains and Jetpack Compose. Use 4-space indentation, idiomatic Kotlin, and clear names. Keep packages aligned with the existing feature and layer layout. Name Compose functions in `PascalCase`, ViewModels as `FeatureViewModel`, reducers as `FeatureReducer`, contracts as `FeatureContract`, and Hilt modules as `FeatureBindingsModule` or `*Module`. Prefer immutable UI state and StateFlow-based updates.

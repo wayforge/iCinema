@@ -18,7 +18,11 @@ object HlsAdFilterContract {
         val matchType: String,
         val createdAtText: String,
         val hitCount: Long,
-        val lastHitAtText: String?
+        val lastHitAtText: String?,
+        val enabled: Boolean = true,
+        /** e.g. 全局指纹 / 仅本片 */
+        val scopeLabel: String = "仅本片",
+        val fingerprintShort: String? = null
     )
 
     data class DetectedSegmentItem(
@@ -36,6 +40,7 @@ object HlsAdFilterContract {
     sealed interface UiIntent {
         data object Load : UiIntent
         data class DeleteRule(val ruleId: String) : UiIntent
+        data class SetRuleEnabled(val ruleId: String, val enabled: Boolean) : UiIntent
         data object ClearAll : UiIntent
         data class PreviewRule(val ruleId: String) : UiIntent
         data class PreviewDetectedSegment(val segmentId: String) : UiIntent

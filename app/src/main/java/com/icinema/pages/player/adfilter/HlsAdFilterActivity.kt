@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,6 +17,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -27,6 +30,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -35,6 +39,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -193,6 +198,11 @@ private fun HlsAdFilterScreen(
             onPreviewDetectedSegment = {
                 viewModel.handleIntent(HlsAdFilterContract.UiIntent.PreviewDetectedSegment(it))
             },
+            onSetEnabled = { ruleId, enabled ->
+                viewModel.handleIntent(
+                    HlsAdFilterContract.UiIntent.SetRuleEnabled(ruleId, enabled)
+                )
+            },
             onDelete = { viewModel.handleIntent(HlsAdFilterContract.UiIntent.DeleteRule(it)) },
             modifier = Modifier.padding(paddingValues)
         )
@@ -206,6 +216,7 @@ private fun HlsAdFilterContent(
     onEdit: (HlsAdFilterContract.AdRuleItem) -> Unit,
     onValidate: (HlsAdFilterContract.AdRuleItem) -> Unit,
     onPreviewDetectedSegment: (String) -> Unit,
+    onSetEnabled: (ruleId: String, enabled: Boolean) -> Unit,
     onDelete: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -232,6 +243,8 @@ private fun HlsAdFilterContent(
         return
     }
 
+    var detectedExpanded by rememberSaveable { mutableStateOf(false) }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -243,28 +256,29 @@ private fun HlsAdFilterContent(
         }
         if (state.detectedSegments.isNotEmpty()) {
             item {
+                DetectedSegmentsSectionHeader(
+                    count = state.detectedSegments.size,
+                    expanded = detectedExpanded,
+                    onToggle = { detectedExpanded = !detectedExpanded }
+                )
+            }
+            if (detectedExpanded) {
+                items(state.detectedSegments, key = { it.id }) { item ->
+                    DetectedAdSegmentCard(
+                        item = item,
+                        onPreview = { onPreviewDetectedSegment(item.id) }
+                    )
+                }
+            }
+        }
+        if (state.rules.isNotEmpty()) {
+            item {
                 Text(
-                    text = "最近识别广告分片",
+                    text = "广告规则",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
                 )
-            }
-            items(state.detectedSegments, key = { it.id }) { item ->
-                DetectedAdSegmentCard(
-                    item = item,
-                    onPreview = { onPreviewDetectedSegment(item.id) }
-                )
-            }
-            if (state.rules.isNotEmpty()) {
-                item {
-                    Text(
-                        text = "广告规则",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp)
-                    )
-                }
             }
         }
         items(state.rules, key = { it.id }) { item ->
@@ -273,9 +287,45 @@ private fun HlsAdFilterContent(
                 onPreview = { onPreview(item.id) },
                 onEdit = { onEdit(item) },
                 onValidate = { onValidate(item) },
+                onEnabledChange = { enabled -> onSetEnabled(item.id, enabled) },
                 onDelete = { onDelete(item.id) }
             )
         }
+    }
+}
+
+@Composable
+private fun DetectedSegmentsSectionHeader(
+    count: Int,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 4.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "最近识别广告分片",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = if (expanded) "点击收起 · $count 条" else "点击展开 · $count 条",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Icon(
+            imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+            contentDescription = if (expanded) "收起" else "展开",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 
@@ -292,9 +342,10 @@ private fun BuiltInAdFilterRulesCard(modifier: Modifier = Modifier) {
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = "• 代理层保留原始 m3u8，不再删除分片\n" +
-                    "• 当前仅识别并提示，不自动跳过播放内容\n" +
-                    "• 帧、指纹、URL 等证据命中后，归类对象是整个 TS 分片",
+                text = "• 代理按清单顺序全量预取 TS（含广告，保障后续正片可下）\n" +
+                    "• 广告须先下载识别；已缓存后播放层提前 seek 跳过\n" +
+                    "• 全局内容指纹：相同 TS 可跨视频识别\n" +
+                    "• 关闭的规则不参与跳过",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -372,9 +423,15 @@ private fun HlsAdRuleCard(
     onPreview: () -> Unit,
     onEdit: () -> Unit,
     onValidate: () -> Unit,
+    onEnabledChange: (Boolean) -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val statusColor = if (item.enabled) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
     Card(modifier = modifier.fillMaxWidth()) {
         Column(
             modifier = Modifier.padding(12.dp),
@@ -391,7 +448,12 @@ private fun HlsAdRuleCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (item.enabled) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
                     )
                     Text(
                         text = item.subtitle,
@@ -401,11 +463,40 @@ private fun HlsAdRuleCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(
+                        text = if (item.enabled) "生效" else "停用",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = statusColor
+                    )
+                    Switch(
+                        checked = item.enabled,
+                        onCheckedChange = onEnabledChange
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 Text(
-                    text = item.matchType,
+                    text = listOfNotNull(
+                        item.matchType,
+                        item.scopeLabel,
+                        item.fingerprintShort?.let { "fp:$it" }
+                    ).joinToString(" · "),
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary
+                    color = statusColor
                 )
+                if (!item.enabled) {
+                    Text(
+                        text = "播放时不参与识别",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             Text(
@@ -460,7 +551,7 @@ private fun HlsAdRuleEditorDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "规则只对匹配的播放清单生效；命中后仅提示识别结果，代理层不会删除 m3u8 分片。",
+                    text = "本清单 URL 规则仅当前 m3u8；全局指纹可跨视频。开启后：广告仍会下载，识别后播放跳过。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -561,10 +652,13 @@ private fun HlsAdFilterContentPreview() {
                         segmentUrl = "https://cdn.example.com/ad/segment_001.ts",
                         urlPattern = "https://cdn\\.example\\.com/ad/segment_\\d+\\.ts",
                         matchText = "segment_001.ts",
-                        matchType = "同类片段",
+                        matchType = "全局内容指纹",
                         createdAtText = "08-02 15:30",
                         hitCount = 12,
-                        lastHitAtText = "08-03 10:30"
+                        lastHitAtText = "08-03 10:30",
+                        enabled = true,
+                        scopeLabel = "可跨视频",
+                        fingerprintShort = "a1b2c3d4"
                     )
                 )
             ),
@@ -572,6 +666,7 @@ private fun HlsAdFilterContentPreview() {
             onEdit = {},
             onValidate = {},
             onPreviewDetectedSegment = {},
+            onSetEnabled = { _, _ -> },
             onDelete = {}
         )
     }

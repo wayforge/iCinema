@@ -2,6 +2,7 @@ package com.icinema.pages.player.core.hls
 
 import android.content.Context
 import com.google.gson.Gson
+import com.google.gson.JsonParser
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.UUID
 import javax.inject.Inject
@@ -32,16 +33,28 @@ class HlsAdRuleStore @Inject constructor(
         segmentUrls: List<String>,
         recordHits: Boolean = false
     ): Set<String> {
-        val rules = loadRules().filter { HlsAdRuleMatcher.appliesToPlaylist(it, playlistUrl) }
-        if (rules.isEmpty()) return emptySet()
+        val rules = loadRules().filter { it.enabled }
+        val playlistRules = rules.filter { HlsAdRuleMatcher.appliesToPlaylist(it, playlistUrl) }
+        val knownUrls = synchronized(lock) { decodeKnownAdUrls() }
+            .associateBy { normalizeUrlKey(it.segmentUrl) }
 
         val matchedRuleCounts = mutableMapOf<String, Long>()
-        val matchedUrls = segmentUrls.filterTo(linkedSetOf()) { segmentUrl ->
-            val matchingRules = rules.filter { rule -> HlsAdRuleMatcher.matches(rule, segmentUrl) }
-            matchingRules.forEach { rule ->
+        val matchedUrls = linkedSetOf<String>()
+        segmentUrls.forEach { segmentUrl ->
+            val byPlaylist = playlistRules.filter { HlsAdRuleMatcher.matches(it, segmentUrl) }
+            byPlaylist.forEach { rule ->
                 matchedRuleCounts[rule.id] = (matchedRuleCounts[rule.id] ?: 0L) + 1L
             }
-            matchingRules.isNotEmpty()
+            val known = knownUrls[normalizeUrlKey(segmentUrl)]
+            val knownRuleEnabled = known?.let { entry ->
+                rules.any { it.id == entry.ruleId && it.enabled }
+            } == true
+            if (byPlaylist.isNotEmpty() || knownRuleEnabled) {
+                matchedUrls.add(segmentUrl)
+                known?.ruleId?.let { id ->
+                    matchedRuleCounts[id] = (matchedRuleCounts[id] ?: 0L) + 1L
+                }
+            }
         }
         if (recordHits) {
             recordHits(matchedRuleCounts)
@@ -55,12 +68,47 @@ class HlsAdRuleStore @Inject constructor(
         contentFingerprint: HlsContentFingerprint? = null,
         recordHits: Boolean = false
     ): List<HlsAdRule> {
-        val matchedRules = loadRules()
+        val rules = loadRules().filter { it.enabled }
+        val playlistMatched = rules
             .filter { HlsAdRuleMatcher.appliesToPlaylist(it, playlistUrl) }
-            .filter { rule ->
-                HlsAdRuleMatcher.matches(rule, segmentUrl) ||
-                    rule.matchesContent(contentFingerprint)
+            .filter { HlsAdRuleMatcher.matches(it, segmentUrl) || it.matchesContent(contentFingerprint) }
+
+        val knownMatched = synchronized(lock) {
+            val known = decodeKnownAdUrls().firstOrNull {
+                normalizeUrlKey(it.segmentUrl) == normalizeUrlKey(segmentUrl)
+            } ?: return@synchronized emptyList()
+            rules.filter { it.id == known.ruleId }
+        }
+
+        val fingerprintMatched = if (contentFingerprint == null) {
+            emptyList()
+        } else {
+            rules.filter {
+                it.matchScope == HlsAdMatchScope.GlobalFingerprint &&
+                    it.matchesContent(contentFingerprint)
             }
+        }
+
+        val matchedRules = (playlistMatched + knownMatched + fingerprintMatched)
+            .distinctBy { it.id }
+
+        if (matchedRules.isNotEmpty()) {
+            // Learn this URL for future proxy stripping across playlists.
+            if (
+                contentFingerprint != null ||
+                matchedRules.any { it.matchScope == HlsAdMatchScope.GlobalFingerprint }
+            ) {
+                rememberKnownAdUrl(
+                    segmentUrl = segmentUrl,
+                    rule = matchedRules.first(),
+                    contentFingerprint = contentFingerprint
+                        ?: matchedRules.firstOrNull { it.hasContentFingerprint }?.let {
+                            HlsContentFingerprint(it.contentSha256!!, it.contentLength!!)
+                        }
+                )
+            }
+        }
+
         if (recordHits) {
             recordHits(matchedRules.associate { it.id to 1L })
         }
@@ -82,6 +130,16 @@ class HlsAdRuleStore @Inject constructor(
                 it.playlistUrl == playlistUrl && it.segmentUrl == segmentUrl
             }
             val existing = rules.getOrNull(existingIndex)
+            val fingerprint = contentFingerprint
+                ?: existing?.takeIf { it.hasContentFingerprint }?.let {
+                    HlsContentFingerprint(it.contentSha256!!, it.contentLength!!)
+                }
+            val scope = when {
+                fingerprint != null -> HlsAdMatchScope.GlobalFingerprint
+                existing?.matchScope == HlsAdMatchScope.GlobalFingerprint && existing.hasContentFingerprint ->
+                    HlsAdMatchScope.GlobalFingerprint
+                else -> HlsAdMatchScope.Playlist
+            }
             val rule = HlsAdRule(
                 id = existing?.id ?: UUID.randomUUID().toString(),
                 playlistUrl = playlistUrl,
@@ -89,14 +147,16 @@ class HlsAdRuleStore @Inject constructor(
                 urlPattern = existing?.urlPattern ?: buildConservativePattern(segmentUrl),
                 matchText = buildMatchText(segmentUrl),
                 durationSeconds = durationSeconds ?: existing?.durationSeconds,
-                contentSha256 = contentFingerprint?.sha256 ?: existing?.contentSha256,
-                contentLength = contentFingerprint?.length ?: existing?.contentLength,
+                contentSha256 = fingerprint?.sha256 ?: existing?.contentSha256,
+                contentLength = fingerprint?.length ?: existing?.contentLength,
                 videoTitle = videoTitle.ifBlank { existing?.videoTitle.orEmpty() },
                 episodeTitle = episodeTitle.ifBlank { existing?.episodeTitle.orEmpty() },
                 createdAtMs = existing?.createdAtMs ?: now,
                 updatedAtMs = now,
                 hitCount = existing?.hitCount ?: 0L,
-                lastHitAtMs = existing?.lastHitAtMs
+                lastHitAtMs = existing?.lastHitAtMs,
+                enabled = existing?.enabled ?: true,
+                matchScope = scope
             )
             if (existingIndex >= 0) {
                 rules[existingIndex] = rule
@@ -104,13 +164,47 @@ class HlsAdRuleStore @Inject constructor(
                 rules.add(0, rule)
             }
             encodeRules(rules)
+            if (rule.hasContentFingerprint) {
+                rememberKnownAdUrlLocked(
+                    segmentUrl = segmentUrl,
+                    ruleId = rule.id,
+                    contentFingerprint = HlsContentFingerprint(rule.contentSha256!!, rule.contentLength!!)
+                )
+            }
             rule
+        }
+    }
+
+    fun rememberKnownAdUrl(
+        segmentUrl: String,
+        rule: HlsAdRule,
+        contentFingerprint: HlsContentFingerprint?
+    ) {
+        synchronized(lock) {
+            rememberKnownAdUrlLocked(segmentUrl, rule.id, contentFingerprint)
         }
     }
 
     fun deleteRule(ruleId: String) {
         synchronized(lock) {
             encodeRules(decodeRules().filterNot { it.id == ruleId })
+            encodeKnownAdUrls(decodeKnownAdUrls().filterNot { it.ruleId == ruleId })
+        }
+    }
+
+    fun setRuleEnabled(ruleId: String, enabled: Boolean): Boolean {
+        return synchronized(lock) {
+            val rules = decodeRules().toMutableList()
+            val index = rules.indexOfFirst { it.id == ruleId }
+            if (index < 0) return@synchronized false
+            val existing = rules[index]
+            if (existing.enabled == enabled) return@synchronized true
+            rules[index] = existing.copy(
+                enabled = enabled,
+                updatedAtMs = System.currentTimeMillis()
+            )
+            encodeRules(rules)
+            true
         }
     }
 
@@ -153,7 +247,14 @@ class HlsAdRuleStore @Inject constructor(
                     createdAtMs = existing?.createdAtMs ?: now,
                     updatedAtMs = now,
                     hitCount = if (matcherChanged) 0L else existing?.hitCount ?: 0L,
-                    lastHitAtMs = if (matcherChanged) null else existing?.lastHitAtMs
+                    lastHitAtMs = if (matcherChanged) null else existing?.lastHitAtMs,
+                    enabled = existing?.enabled ?: true,
+                    matchScope = when {
+                        existing?.hasContentFingerprint == true ->
+                            existing.matchScope.takeIf { it == HlsAdMatchScope.GlobalFingerprint }
+                                ?: HlsAdMatchScope.GlobalFingerprint
+                        else -> HlsAdMatchScope.Playlist
+                    }
                 )
                 if (existingIndex >= 0) {
                     rules[existingIndex] = rule
@@ -182,8 +283,10 @@ class HlsAdRuleStore @Inject constructor(
             val rule = loadRules().firstOrNull { it.id == ruleId }
                 ?: throw IllegalArgumentException("广告规则不存在")
             HlsAdRuleValidation(
-                playlistMatches = HlsAdRuleMatcher.appliesToPlaylist(rule, playlistUrl.trim()),
-                segmentMatches = HlsAdRuleMatcher.matches(rule, segmentUrl.trim())
+                playlistMatches = HlsAdRuleMatcher.appliesToPlaylist(rule, playlistUrl.trim()) ||
+                    rule.matchScope == HlsAdMatchScope.GlobalFingerprint,
+                segmentMatches = HlsAdRuleMatcher.matches(rule, segmentUrl.trim()) ||
+                    (rule.matchScope == HlsAdMatchScope.GlobalFingerprint && rule.hasContentFingerprint)
             )
         }
     }
@@ -193,6 +296,7 @@ class HlsAdRuleStore @Inject constructor(
             prefs.edit()
                 .remove(KEY_RULES)
                 .remove(KEY_DETECTED_SEGMENTS)
+                .remove(KEY_KNOWN_AD_URLS)
                 .apply()
         }
     }
@@ -243,7 +347,46 @@ class HlsAdRuleStore @Inject constructor(
                     .sortedByDescending { it.lastDetectedAtMs }
                     .take(MAX_DETECTED_SEGMENTS)
             )
+            if (rule.matchScope == HlsAdMatchScope.GlobalFingerprint || contentFingerprint != null) {
+                rememberKnownAdUrlLocked(
+                    segmentUrl = segmentUrl,
+                    ruleId = rule.id,
+                    contentFingerprint = contentFingerprint
+                        ?: rule.takeIf { it.hasContentFingerprint }?.let {
+                            HlsContentFingerprint(it.contentSha256!!, it.contentLength!!)
+                        }
+                )
+            }
         }
+    }
+
+    private fun rememberKnownAdUrlLocked(
+        segmentUrl: String,
+        ruleId: String,
+        contentFingerprint: HlsContentFingerprint?
+    ) {
+        val key = normalizeUrlKey(segmentUrl)
+        if (key.isBlank()) return
+        val now = System.currentTimeMillis()
+        val current = decodeKnownAdUrls().toMutableList()
+        val index = current.indexOfFirst { normalizeUrlKey(it.segmentUrl) == key }
+        val entry = HlsKnownAdUrl(
+            segmentUrl = segmentUrl.substringBefore('?'),
+            ruleId = ruleId,
+            contentSha256 = contentFingerprint?.sha256,
+            contentLength = contentFingerprint?.length,
+            updatedAtMs = now
+        )
+        if (index >= 0) {
+            current[index] = entry
+        } else {
+            current.add(0, entry)
+        }
+        encodeKnownAdUrls(
+            current
+                .sortedByDescending { it.updatedAtMs }
+                .take(MAX_KNOWN_AD_URLS)
+        )
     }
 
     private fun recordHits(hitCounts: Map<String, Long>) {
@@ -280,13 +423,36 @@ class HlsAdRuleStore @Inject constructor(
         return segmentUrl.substringBefore('?').substringAfterLast('/')
     }
 
+    private fun normalizeUrlKey(url: String): String {
+        return url.trim().substringBefore('?')
+    }
+
     private fun decodeRules(): List<HlsAdRule> {
         val json = prefs.getString(KEY_RULES, null).orEmpty()
         if (json.isBlank()) return emptyList()
         return runCatching {
-            gson.fromJson(json, Array<HlsAdRule>::class.java)
-                ?.toList()
-                .orEmpty()
+            @Suppress("DEPRECATION")
+            val root = JsonParser().parse(json)
+            if (!root.isJsonArray) return@runCatching emptyList()
+            root.asJsonArray.mapNotNull { element ->
+                if (!element.isJsonObject) return@mapNotNull null
+                val obj = element.asJsonObject
+                val rule = gson.fromJson(obj, HlsAdRule::class.java) ?: return@mapNotNull null
+                var normalized = rule
+                if (!obj.has("enabled")) {
+                    normalized = normalized.copy(enabled = true)
+                }
+                if (!obj.has("matchScope")) {
+                    normalized = normalized.copy(
+                        matchScope = if (normalized.hasContentFingerprint) {
+                            HlsAdMatchScope.GlobalFingerprint
+                        } else {
+                            HlsAdMatchScope.Playlist
+                        }
+                    )
+                }
+                normalized
+            }
         }.getOrDefault(emptyList())
     }
 
@@ -308,11 +474,27 @@ class HlsAdRuleStore @Inject constructor(
         prefs.edit().putString(KEY_DETECTED_SEGMENTS, gson.toJson(segments)).apply()
     }
 
+    private fun decodeKnownAdUrls(): List<HlsKnownAdUrl> {
+        val json = prefs.getString(KEY_KNOWN_AD_URLS, null).orEmpty()
+        if (json.isBlank()) return emptyList()
+        return runCatching {
+            gson.fromJson(json, Array<HlsKnownAdUrl>::class.java)
+                ?.toList()
+                .orEmpty()
+        }.getOrDefault(emptyList())
+    }
+
+    private fun encodeKnownAdUrls(urls: List<HlsKnownAdUrl>) {
+        prefs.edit().putString(KEY_KNOWN_AD_URLS, gson.toJson(urls)).apply()
+    }
+
     private companion object {
         private const val PREFS_NAME = "hls_ad_rules"
         private const val KEY_RULES = "rules"
         private const val KEY_DETECTED_SEGMENTS = "detected_segments"
+        private const val KEY_KNOWN_AD_URLS = "known_ad_urls"
         private const val MAX_DETECTED_SEGMENTS = 100
+        private const val MAX_KNOWN_AD_URLS = 500
         private val AD_TOKEN_REGEX = Regex(
             """(?i)(^|[_.=-])(ad|ads|adv|advert|vast|vmap|preroll|midroll|postroll|sponsor|commercial)([_.=-]|$)"""
         )

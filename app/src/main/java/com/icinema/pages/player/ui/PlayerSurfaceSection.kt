@@ -14,10 +14,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Cast
+import androidx.compose.material.icons.filled.CastConnected
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Lock
@@ -44,6 +48,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -59,6 +64,7 @@ import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.input.pointer.consumeAllChanges
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -67,6 +73,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.icinema.ui.theme.iCinemaTheme
+import kotlinx.coroutines.delay
 
 @Composable
 internal fun PlayerSurfaceSection(
@@ -114,6 +121,16 @@ internal fun PlayerSurfaceSection(
                 modifier = Modifier.fillMaxSize()
             )
         }
+
+        PlayerToastOverlay(
+            message = state.playerToast,
+            token = state.playerToastToken,
+            onDismiss = { onIntent(PlayerContract.UiIntent.DismissPlayerToast) },
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .statusBarsPadding()
+                .padding(top = 56.dp)
+        )
 
         if (state.resumePositionMs != null) {
             ResumePrompt(
@@ -283,6 +300,8 @@ private fun PlayerControlsOverlay(
                 episodeTitle = state.currentEpisode?.title.orEmpty()
             ),
             isLocked = state.controlsLocked,
+            isCasting = state.castState.isCasting || state.castState.isConnecting,
+            canCast = state.currentEpisode?.isHls == true,
             playbackSpeed = state.playbackSpeed,
             autoPlayNextEnabled = state.autoPlayNextEnabled,
             gestureSeekEnabled = state.gestureSeekEnabled,
@@ -314,6 +333,8 @@ private fun PlayerControlsOverlay(
 private fun PlayerTopBar(
     title: String,
     isLocked: Boolean,
+    isCasting: Boolean,
+    canCast: Boolean,
     playbackSpeed: Float,
     autoPlayNextEnabled: Boolean,
     gestureSeekEnabled: Boolean,
@@ -336,6 +357,22 @@ private fun PlayerTopBar(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+        if (!isLocked) {
+            IconButton(
+                onClick = { onIntent(PlayerContract.UiIntent.OpenCastFlow) },
+                enabled = canCast || isCasting
+            ) {
+                Icon(
+                    imageVector = if (isCasting) Icons.Filled.CastConnected else Icons.Filled.Cast,
+                    contentDescription = if (isCasting) "投屏中" else "投屏",
+                    tint = if (canCast || isCasting) {
+                        Color.White
+                    } else {
+                        Color.White.copy(alpha = 0.36f)
+                    }
+                )
+            }
+        }
         IconButton(onClick = { onIntent(PlayerContract.UiIntent.ToggleControlsLock) }) {
             Icon(
                 imageVector = if (isLocked) Icons.Filled.Lock else Icons.Filled.LockOpen,
@@ -510,6 +547,41 @@ private fun PlayerTimeline(
                 style = MaterialTheme.typography.labelMedium
             )
         }
+    }
+}
+
+@Composable
+private fun PlayerToastOverlay(
+    message: String?,
+    token: Long,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (message.isNullOrBlank()) return
+
+    LaunchedEffect(token, message) {
+        delay(2_200L)
+        onDismiss()
+    }
+
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(24.dp),
+        color = Color.Black.copy(alpha = 0.78f),
+        contentColor = Color.White,
+        shadowElevation = 6.dp
+    ) {
+        Text(
+            text = message,
+            modifier = Modifier
+                .widthIn(max = 320.dp)
+                .padding(horizontal = 18.dp, vertical = 10.dp),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
